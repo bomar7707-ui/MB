@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zápisník horských výšlapů (Cloudové úložiště)</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f5f5f4;
+            color: #292524;
+        }
+        .modal-transition {
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center py-8 px-4 sm:px-6 lg:px-8">
+
+    <div class="w-full max-w-3xl">
+        <header class="text-center mb-8 relative">
+            <div class="flex justify-center mb-3">
+                <svg class="w-14 h-14 text-emerald-600" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M14 6l-4.22 5.63 1.25 1.67L14 9.33 19 16h-8.46l-4.01-5.37L1 18h22L14 6zM5 16l1.52-2.03L8.04 16H5z"/>
+                </svg>
+            </div>
+            <h1 class="text-3xl font-extrabold text-emerald-900 tracking-tight mb-2">Horský zápisník</h1>
+            <p class="text-stone-500">Cloudová verze. Tvá data jsou ukládána online.</p>
+            <div id="connection-status" class="absolute top-0 right-0 mt-2 mr-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 transition-colors">
+                <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse" id="status-dot"></span>
+                <span id="status-text">Připojuji k Firebase...</span>
+            </div>
+        </header>
+
+        <main class="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-stone-200 mb-10 relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-full h-1.5 bg-emerald-500"></div>
+            
+            <h2 id="form-title" class="text-xl font-bold mb-6 text-stone-800">Přidat nový výšlap</h2>
+            
+            <form id="hike-form" class="space-y-5">
+                <div class="grid grid-cols-1 sm:grid-cols-12 gap-5">
+                    <div class="sm:col-span-8">
+                        <label for="hike-name" class="block text-sm font-semibold text-stone-700 mb-1.5">Název vrcholu / Trasa *</label>
+                        <input type="text" id="hike-name" required placeholder="Např. Lysá hora z Ostravice" 
+                            class="w-full px-4 py-2.5 bg-stone-50 border border-stone-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
+                    </div>
+
+                    <div class="sm:col-span-4">
+                        <label for="hike-distance" class="block text-sm font-semibold text-stone-700 mb-1.5">Vzdálenost (km) *</label>
+                        <input type="number" id="hike-distance" required min="0.1" step="0.1" placeholder="Např. 16.5" 
+                            class="w-full px-4 py-2.5 bg-stone-50 border border-stone-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
+                    </div>
+
+                    <div class="sm:col-span-6">
+                        <label for="hike-date" class="block text-sm font-semibold text-stone-700 mb-1.5">Datum od *</label>
+                        <input type="date" id="hike-date" required 
+                            class="w-full px-4 py-2.5 bg-stone-50 border border-stone-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
+                    </div>
+
+                    <div class="sm:col-span-6">
+                        <label for="hike-date-to" class="block text-sm font-semibold text-stone-700 mb-1.5">Datum do (volitelné)</label>
+                        <input type="date" id="hike-date-to" 
+                            class="w-full px-4 py-2.5 bg-stone-50 border border-stone-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
+                    </div>
+
+                    <div class="sm:col-span-12">
+                        <label for="hike-participants" class="block text-sm font-semibold text-stone-700 mb-1.5">Účastníci (volitelné)</label>
+                        <input type="text" id="hike-participants" placeholder="Např. s rodinou, se psem..." 
+                            class="w-full px-4 py-2.5 bg-stone-50 border border-stone-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
+                    </div>
+
+                    <div class="sm:col-span-12">
+                        <label for="hike-note" class="block text-sm font-semibold text-stone-700 mb-1.5">Poznámka (volitelné)</label>
+                        <textarea id="hike-note" rows="2" placeholder="Jaké bylo počasí? Co tě zaujalo?"
+                            class="w-full px-4 py-2.5 bg-stone-50 border border-stone-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all"></textarea>
+                    </div>
+                </div>
+
+                <div class="flex flex-col sm:flex-row gap-3 mt-6 pt-2">
+                    <button type="submit" id="submit-btn" disabled
+                        class="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-stone-300 text-white font-bold py-3.5 px-6 rounded-xl transition-colors shadow-sm outline-none flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                        Přidat výšlap
+                    </button>
+                    <button type="button" id="cancel-edit-btn" onclick="window.cancelEdit()"
+                        class="hidden sm:w-auto w-full bg-stone-200 hover:bg-stone-300 text-stone-800 font-bold py-3.5 px-6 rounded-xl transition-colors shadow-sm outline-none">
+                        Zrušit úpravy
+                    </button>
+                </div>
+            </form>
+        </main>
+
+        <div>
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-5 gap-4">
+                <h2 class="text-2xl font-bold text-stone-800">Historie výšlapů</h2>
+                <div class="flex items-center gap-2 text-lg font-extrabold text-emerald-800 bg-emerald-100/50 px-5 py-2.5 rounded-xl border border-emerald-200 shadow-sm">
+                    <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+                    Celkem: <span id="total-distance">0</span> km
+                </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-4 mb-6 bg-white p-4 rounded-xl shadow-sm border border-stone-200">
+                <span class="text-sm font-bold text-stone-400 uppercase tracking-wider hidden sm:inline mr-2">Filtry:</span>
+                
+                <div class="flex items-center gap-2 flex-1 sm:flex-none">
+                    <label for="filter-year" class="text-sm font-semibold text-stone-600">Rok</label>
+                    <select id="filter-year" class="w-full sm:w-auto px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm font-medium">
+                        <option value="all">Všechny</option>
+                    </select>
+                </div>
+                
+                <div class="flex items-center gap-2 flex-1 sm:flex-none">
+                    <label for="filter-month" class="text-sm font-semibold text-stone-600">Měsíc</label>
+                    <select id="filter-month" class="w-full sm:w-auto px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm font-medium">
+                        <option value="all">Všechny</option>
+                        <option value="1">Leden</option>
+                        <option value="2">Únor</option>
+                        <option value="3">Březen</option>
+                        <option value="4">Duben</option>
+                        <option value="5">Květen</option>
+                        <option value="6">Červen</option>
+                        <option value="7">Červenec</option>
+                        <option value="8">Srpen</option>
+                        <option value="9">Září</option>
+                        <option value="10">Říjen</option>
+                        <option value="11">Listopad</option>
+                        <option value="12">Prosinec</option>
+                    </select>
+                </div>
+
+                <div class="flex items-center gap-2 flex-1 sm:flex-none">
+                    <label for="filter-participant" class="text-sm font-semibold text-stone-600">Účastník</label>
+                    <select id="filter-participant" class="w-full sm:w-auto px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm font-medium">
+                        <option value="all">Všichni</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="hike-list" class="space-y-4">
+                <!-- Data načtena z Firebase -->
+            </div>
+            
+            <div id="empty-state" class="text-center py-12 bg-white rounded-2xl border border-stone-200 border-dashed hidden shadow-sm mt-4">
+                <svg class="w-12 h-12 text-stone-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z"></path></svg>
+                <p class="text-stone-500 font-medium">Zatím tu nejsou žádné záznamy.<br>Přidej svůj první výšlap výše!</p>
+            </div>
+            
+            <div class="mt-8 pt-6 border-t border-stone-200">
+                <h3 class="text-sm font-bold text-stone-400 uppercase tracking-wider mb-4">Záloha dat (Export / Import)</h3>
+                <div class="flex flex-wrap gap-3">
+                    <button onclick="window.exportData()" class="flex items-center justify-center gap-2 px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-sm font-bold rounded-xl transition-colors border border-stone-200 shadow-sm outline-none w-full sm:w-auto">
+                        <svg class="w-5 h-5 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4-4m0 0l-4-4m4 4V4"></path></svg>
+                        Export JSON
+                    </button>
+                    
+                    <button onclick="window.exportToXLS()" class="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-sm font-bold rounded-xl transition-colors border border-emerald-200 shadow-sm outline-none w-full sm:w-auto">
+                        <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                        Export XLSX (Excel)
+                    </button>
+                    
+                    <label for="import-file" class="cursor-pointer flex items-center justify-center gap-2 px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-sm font-bold rounded-xl transition-colors border border-stone-200 shadow-sm outline-none w-full sm:w-auto">
+                        <svg class="w-5 h-5 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                        Import JSON do Cloudu
+                    </label>
+                    <input type="file" id="import-file" accept=".json" class="hidden" onchange="window.importData(event)">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="custom-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-stone-900/40 backdrop-blur-sm px-4 opacity-0 modal-transition">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 transform scale-95 modal-transition border border-stone-100" id="custom-modal-box">
+            <h3 id="modal-title" class="text-xl font-bold text-stone-800 mb-2">Upozornění</h3>
+            <p id="modal-message" class="text-stone-600 mb-6 font-medium">Zpráva</p>
+            <div id="modal-actions" class="flex justify-end gap-3">
+                <!-- Generováno Javascriptem -->
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Firebase konfigurace, kterou jsi zadal
+        const firebaseConfig = {
+            apiKey: "AIzaSyDg0j8KCyc-QlSjI80b-CsyLA1pecMlLVE",
+            authDomain: "moje-hory.firebaseapp.com",
+            projectId: "moje-hory",
+            storageBucket: "moje-hory.firebasestorage.app",
+            messagingSenderId: "307649543821",
+            appId: "1:307649543821:web:115122f080533b4c17acc4"
+        };
+
+        // Inicializace Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        let hikes = [];
+        let editingId = null;
+
+        // DOM elementy
+        const form = document.getElementById('hike-form');
+        const hikeNameInput = document.getElementById('hike-name');
+        const hikeDistanceInput = document.getElementById('hike-distance');
+        const hikeDateInput = document.getElementById('hike-date');
+        const hikeDateToInput = document.getElementById('hike-date-to');
+        const hikeParticipantsInput = document.getElementById('hike-participants');
+        const hikeNoteInput = document.getElementById('hike-note');
+        
+        const submitBtn = document.getElementById('submit-btn');
+        const cancelEditBtn = document.getElementById('cancel-edit-btn');
+        const filterYearEl = document.getElementById('filter-year');
+        const filterMonthEl = document.getElementById('filter-month');
+        const filterParticipantEl = document.getElementById('filter-participant');
+        
+        hikeDateInput.valueAsDate = new Date();
+
+        // Indikátor stavu připojení k Firebase
+        const statusEl = document.getElementById('connection-status');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+
+        function setConnectionStatus(isConnected) {
+            if (isConnected) {
+                statusEl.className = "absolute top-0 right-0 mt-2 mr-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 transition-colors";
+                statusDot.className = "w-2 h-2 rounded-full bg-emerald-500";
+                statusText.textContent = "Připojeno k databázi";
+                submitBtn.disabled = false;
+            } else {
+                statusEl.className = "absolute top-0 right-0 mt-2 mr-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800 transition-colors";
+                statusDot.className = "w-2 h-2 rounded-full bg-red-500";
+                statusText.textContent = "Chyba připojení";
+            }
+        }
+
+        async function initApp() {
+            try {
+                // Autentizace pro zajištění přístupu
+                await signInAnonymously(auth);
+                listenToHikes();
+            } catch (error) {
+                console.warn("Anonymní přihlášení selhalo, zkouším přístup do databáze napřímo...", error);
+                listenToHikes();
+            }
+        }
+
+        function listenToHikes() {
+            const vyslapyRef = collection(db, 'vyslapy');
+            
+            // onSnapshot automaticky reaguje na každou změnu v databázi napříč zařízeními
+            onSnapshot(vyslapyRef, (snapshot) => {
+                hikes = snapshot.docs.map(docSnap => ({
+                    id: docSnap.id,
+                    ...docSnap.data()
+                }));
+                
+                setConnectionStatus(true);
+                updateFilters();
+                renderHikes();
+            }, (error) => {
+                console.error("Chyba při čtení dat z Firebase:", error);
+                setConnectionStatus(false);
+            });
+        }
+
+        // Spuštění připojení
+        initApp();
+
+        function updateFilters() {
+            // ROKY
+            const currentYearVal = filterYearEl.value;
+            const years = [...new Set(hikes.map(hike => new Date(hike.date).getFullYear()))].filter(y => !isNaN(y)).sort((a, b) => b - a);
+            
+            filterYearEl.innerHTML = '<option value="all">Všechny</option>';
+            years.forEach(year => {
+                const option = document.createElement('option');
+                option.value = year;
+                option.textContent = year;
+                filterYearEl.appendChild(option);
+            });
+            
+            if (years.includes(parseInt(currentYearVal))) {
+                filterYearEl.value = currentYearVal;
+            } else if (currentYearVal === 'all') {
+                filterYearEl.value = 'all';
+            }
+
+            // ÚČASTNÍCI
+            const currentPartVal = filterParticipantEl.value;
+            const participants = new Set();
+            hikes.forEach(h => {
+                if (h.participants) {
+                    h.participants.split(',').forEach(p => {
+                        const trimmed = p.trim();
+                        if (trimmed) participants.add(trimmed);
+                    });
+                }
+            });
+            
+            filterParticipantEl.innerHTML = '<option value="all">Všichni</option>';
+            Array.from(participants).sort().forEach(p => {
+                filterParticipantEl.innerHTML += `<option value="${p}">${p}</option>`;
+            });
+            if (Array.from(participants).includes(currentPartVal)) {
+                filterParticipantEl.value = currentPartVal;
+            }
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            return isNaN(date) ? '' : date.toLocaleDateString('cs-CZ');
+        }
+
+        function linkify(text) {
+            if (!text) return '';
+            const urlRegex = /(https?:\/\/[^\s]+)/g;
+            return text.replace(urlRegex, function(url) {
+                return '<a href="' + url + '" target="_blank" class="text-emerald-600 hover:text-emerald-800 underline transition-colors">' + url + '</a>';
+            });
+        }
+
+        window.renderHikes = function() {
+            const container = document.getElementById('hike-list');
+            const emptyState = document.getElementById('empty-state');
+            const totalDistanceEl = document.getElementById('total-distance');
+            
+            container.innerHTML = '';
+            
+            const selectedYear = filterYearEl.value;
+            const selectedMonth = filterMonthEl.value;
+            const selectedParticipant = filterParticipantEl.value;
+
+            // Filtrování a řazení od NEJNOVĚJŠÍHO (desc)
+            const filteredHikes = hikes.filter(hike => {
+                const d = new Date(hike.date);
+                if(isNaN(d)) return false;
+                
+                const matchYear = selectedYear === 'all' || d.getFullYear().toString() === selectedYear;
+                const matchMonth = selectedMonth === 'all' || (d.getMonth() + 1).toString() === selectedMonth;
+                const matchParticipant = selectedParticipant === 'all' || (hike.participants && hike.participants.toLowerCase().includes(selectedParticipant.toLowerCase()));
+                
+                return matchYear && matchMonth && matchParticipant;
+            }).sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            // Dynamický součet kilometrů pro aktuální filtr
+            const totalKm = filteredHikes.reduce((sum, h) => sum + parseFloat(h.distance || 0), 0);
+            totalDistanceEl.textContent = totalKm.toFixed(1).replace('.0', '');
+
+            if (filteredHikes.length === 0) {
+                emptyState.classList.remove('hidden');
+            } else {
+                emptyState.classList.add('hidden');
+            }
+
+            filteredHikes.forEach(hike => {
+                const card = document.createElement('div');
+                card.className = "bg-white p-5 rounded-xl shadow-sm border border-stone-200 flex flex-col sm:flex-row sm:items-start justify-between gap-5 hover:shadow-md transition-shadow relative overflow-hidden group";
+
+                let displayDate = formatDate(hike.date);
+                if (hike.dateTo && hike.dateTo !== hike.date) {
+                    displayDate += ` - ${formatDate(hike.dateTo)}`;
+                }
+
+                let participantsHtml = hike.participants ? `
+                    <div class="mt-3 flex items-start gap-2 text-sm text-stone-600 bg-stone-50 py-1.5 px-3 rounded-lg border border-stone-100 inline-flex">
+                        <svg class="w-4 h-4 mt-0.5 text-emerald-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                        <span>${hike.participants}</span>
+                    </div>
+                ` : '';
+
+                let noteHtml = hike.note ? `
+                    <div class="mt-3 text-sm text-stone-600 italic border-l-2 border-emerald-300 pl-3 py-0.5 whitespace-pre-line">
+                        ${linkify(hike.note)}
+                    </div>
+                ` : '';
+
+                card.innerHTML = `
+                    <div class="flex-1 w-full">
+                        <div class="flex flex-col mb-1.5">
+                            <h3 class="text-xl font-bold text-stone-800 cursor-pointer hover:text-emerald-600 transition-colors inline-block w-fit" 
+                                onclick="window.editHike('${hike.id}')" title="Klikni pro úpravu záznamu">
+                                ${hike.name}
+                            </h3>
+                        </div>
+                        
+                        <div class="flex flex-wrap items-center gap-x-5 gap-y-2 mt-2">
+                            <span class="flex items-center gap-1.5 text-stone-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">
+                                <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+                                <span class="font-bold text-emerald-900">${parseFloat(hike.distance).toFixed(1)} km</span>
+                            </span>
+                            <span class="flex items-center gap-1.5 text-sm text-stone-500 font-medium">
+                                <svg class="w-4 h-4 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                ${displayDate}
+                            </span>
+                        </div>
+                        ${participantsHtml}
+                        ${noteHtml}
+                    </div>
+                    
+                    <button onclick="window.requestDeleteHike('${hike.id}')" 
+                        class="shrink-0 flex items-center justify-center gap-1.5 text-red-600 hover:text-white hover:bg-red-500 bg-red-50 border border-red-100 px-3 py-2 rounded-lg transition-all font-semibold text-sm sm:self-start w-full sm:w-auto" title="Smazat záznam">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        <span class="sm:hidden lg:inline">Smazat</span>
+                    </button>
+                `;
+
+                container.appendChild(card);
+            });
+        }
+
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            if (submitBtn.disabled) return;
+
+            const newHikeData = {
+                name: hikeNameInput.value.trim(),
+                distance: parseFloat(hikeDistanceInput.value),
+                date: hikeDateInput.value,
+                dateTo: hikeDateToInput.value,
+                participants: hikeParticipantsInput.value.trim(),
+                note: hikeNoteInput.value.trim()
+            };
+
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<svg class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg> Ukládám...';
+
+            try {
+                if (editingId) {
+                    await updateDoc(doc(db, 'vyslapy', editingId), newHikeData);
+                    window.cancelEdit();
+                } else {
+                    await addDoc(collection(db, 'vyslapy'), newHikeData);
+                    form.reset();
+                    hikeDateInput.valueAsDate = new Date();
+                }
+            } catch (error) {
+                console.error("Chyba při zápisu:", error);
+                window.showModal('Chyba', 'Při ukládání dat do Firebase došlo k chybě. Zkus to prosím znovu.');
+            } finally {
+                submitBtn.disabled = false;
+                if (!editingId) {
+                    submitBtn.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg> Přidat výšlap';
+                }
+            }
+        });
+
+        window.editHike = function(id) {
+            const hike = hikes.find(h => h.id === id);
+            if (!hike) return;
+
+            hikeNameInput.value = hike.name;
+            hikeDistanceInput.value = hike.distance;
+            hikeDateInput.value = hike.date;
+            hikeDateToInput.value = hike.dateTo || '';
+            hikeParticipantsInput.value = hike.participants || '';
+            hikeNoteInput.value = hike.note || '';
+
+            editingId = id;
+            document.getElementById('form-title').textContent = "Úprava výšlapu";
+
+            submitBtn.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg> Uložit změny';
+            cancelEditBtn.classList.remove('hidden');
+
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+
+        window.cancelEdit = function() {
+            form.reset();
+            hikeDateInput.valueAsDate = new Date();
+            editingId = null;
+            document.getElementById('form-title').textContent = "Přidat nový výšlap";
+
+            submitBtn.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg> Přidat výšlap';
+            cancelEditBtn.classList.add('hidden');
+        };
+
+        window.showModal = function(title, message, isConfirm = false, onConfirm = null) {
+            const modal = document.getElementById('custom-modal');
+            const modalBox = document.getElementById('custom-modal-box');
+            const actionsContainer = document.getElementById('modal-actions');
+            
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-message').textContent = message;
+            
+            if (isConfirm) {
+                actionsContainer.innerHTML = `
+                    <button onclick="window.closeModal()" class="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold rounded-xl transition-colors">Zrušit</button>
+                    <button id="modal-confirm-btn" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl transition-colors shadow-sm">Ano, smazat</button>
+                `;
+                document.getElementById('modal-confirm-btn').onclick = function() {
+                    if (onConfirm) onConfirm();
+                    window.closeModal();
+                };
+            } else {
+                actionsContainer.innerHTML = `
+                    <button onclick="window.closeModal()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition-colors shadow-sm">Rozumím</button>
+                `;
+            }
+            
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                modalBox.classList.remove('scale-95');
+            }, 10);
+        };
+
+        window.closeModal = function() {
+            const modal = document.getElementById('custom-modal');
+            const modalBox = document.getElementById('custom-modal-box');
+            
+            modal.classList.add('opacity-0');
+            modalBox.classList.add('scale-95');
+            
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 300);
+        };
+
+        window.requestDeleteHike = function(id) {
+            window.showModal('Smazat záznam z Cloudu', 'Opravdu chceš tento výšlap smazat? Data budou trvale odstraněna z databáze Firebase.', true, async function() {
+                try {
+                    await deleteDoc(doc(db, 'vyslapy', id));
+                    if (editingId === id) window.cancelEdit();
+                } catch (error) {
+                    console.error("Chyba při mazání:", error);
+                    window.showModal('Chyba', 'Záznam se nepodařilo smazat.');
+                }
+            });
+        };
+
+        window.exportData = function() {
+            if (hikes.length === 0) {
+                window.showModal('Prázdný zápisník', 'Zatím nemáš žádné záznamy k exportování.');
+                return;
+            }
+            const cleanData = hikes.map(({id, ...rest}) => rest);
+            const dataStr = JSON.stringify(cleanData, null, 2);
+            const blob = new Blob([dataStr], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "vyslapy-firebase-zaloha.json";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        };
+
+        window.exportToXLS = function() {
+            if (hikes.length === 0) {
+                window.showModal('Prázdný zápisník', 'Zatím nemáš žádné záznamy k exportování.');
+                return;
+            }
+
+            const excelData = hikes.map(hike => ({
+                "Název": hike.name,
+                "Vzdálenost (km)": parseFloat(hike.distance),
+                "Datum od": formatDate(hike.date),
+                "Datum do": hike.dateTo ? formatDate(hike.dateTo) : '',
+                "Účastníci": hike.participants || '',
+                "Poznámka": hike.note || ''
+            }));
+
+            try {
+                const ws = XLSX.utils.json_to_sheet(excelData);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Výšlapy Firebase");
+                XLSX.writeFile(wb, "vyslapy-z-cloudu.xlsx");
+            } catch (error) {
+                window.showModal('Chyba', 'Při exportu do Excelu došlo k chybě.');
+                console.error(error);
+            }
+        };
+
+        window.importData = function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const importedData = JSON.parse(e.target.result);
+                    if (Array.isArray(importedData)) {
+                        window.showModal(
+                            'Nahrát data do databáze', 
+                            `Chystáš se nahrát ${importedData.length} záznamů do cloudu. Stávající záznamy ve Firebase BUDOU smazány a nahrazeny. Chceš pokračovat?`, 
+                            true, 
+                            async function() {
+                                window.showModal('Nahrávám', 'Prosím čekej, promazávám stará a nahrávám nová data do cloudu...');
+                                try {
+                                    for(const h of hikes) {
+                                        await deleteDoc(doc(db, 'vyslapy', h.id));
+                                    }
+                                    for(const data of importedData) {
+                                        const {id, ...rest} = data;
+                                        await addDoc(collection(db, 'vyslapy'), rest);
+                                    }
+                                    window.showModal('Úspěch', 'Záloha byla úspěšně nahrána do Firebase Cloudu!');
+                                } catch (err) {
+                                    console.error("Chyba při importu:", err);
+                                    window.showModal('Chyba', 'Při přenosu některých dat do Firebase došlo k chybě.');
+                                }
+                            }
+                        );
+                    } else {
+                        window.showModal('Chyba', 'Soubor neobsahuje platný formát dat pro výšlapy.');
+                    }
+                } catch (error) {
+                    window.showModal('Chyba', 'Nepodařilo se přečíst soubor. Ujisti se, že jde o platný JSON.');
+                }
+                event.target.value = ""; 
+            };
+            reader.readAsText(file);
+        };
+
+        // Event listenery pro filtry
+        filterYearEl.addEventListener('change', window.renderHikes);
+        filterMonthEl.addEventListener('change', window.renderHikes);
+        filterParticipantEl.addEventListener('change', window.renderHikes);
+
+    </script>
+</body>
+</html>
