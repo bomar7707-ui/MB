@@ -45,9 +45,6 @@
         <div class="flex-1 overflow-y-auto p-5 space-y-5">
             
             <div class="bg-emerald-50/60 border border-emerald-200/80 rounded-2xl p-4 shadow-sm space-y-3">
-                <h2 class="text-xs font-semibold uppercase tracking-wider text-emerald-800 flex items-center justify-between">
-                    <span><i class="fa-solid fa-cloud-arrow-down mr-2"></i> Synchronizace s Horským zápisníkem</span>
-                </h2>
                 <div class="flex flex-col space-y-2">
                     <button onclick="window.fetchFromFirebase()" id="btn-fetch-notes" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 px-4 rounded-xl text-xs font-semibold transition-colors shadow-sm flex items-center justify-center space-x-2">
                         <i class="fa-solid fa-cloud-arrow-down"></i>
@@ -168,7 +165,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, initializeFirestore, collection, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const apiKey = "3SfstVBaZryBHeEkOsw_DSAc8PwcV140TQvNslWDrQY";
 
@@ -185,7 +182,12 @@
         try {
             app = initializeApp(firebaseConfig);
             auth = getAuth(app);
-            db = getFirestore(app);
+            // LongPolling ensures mobile networks / restrictive browsers can connect smoothly
+            try {
+                db = initializeFirestore(app, { experimentalForceLongPolling: true });
+            } catch(e) {
+                db = getFirestore(app);
+            }
         } catch (e) {
             console.warn("Firebase init warning:", e);
         }
@@ -247,18 +249,14 @@
                 let querySnapshot = null;
 
                 if (auth) {
-                    try {
-                        await signInAnonymously(auth);
-                    } catch (authErr) {
-                        console.warn("Anonymní přihlášení přeskočeno", authErr);
-                    }
+                    try { await signInAnonymously(auth); } catch (e) {}
                 }
 
                 if (db) {
                     try {
                         querySnapshot = await getDocs(collection(db, 'vyslapy'));
                     } catch (fetchErr) {
-                        console.warn("Přímé čtení z Firestore selhalo:", fetchErr);
+                        console.warn("Firestore direct read error:", fetchErr);
                     }
                 }
 
@@ -337,7 +335,7 @@
                 if (window.archivedTrips.length > 0) {
                     window.showToast('Byla načtena uložená lokální data z paměti.', 'success');
                 } else {
-                    window.showToast('Nepodařilo se připojit k Firebase. Použijte zálohu JSON.', 'error');
+                    window.showToast('Připojení k Firebase z mobilní sítě selhalo. Použijte Záloha IN.', 'warning');
                 }
             } finally {
                 btn.innerHTML = originalBtnHtml;
@@ -435,7 +433,7 @@
 
         window.toggleMapVisibility = function(tripId, mapIndex) {
             const trip = window.archivedTrips.find(t => t.id === tripId);
-            if (trip && trip.maps && trip.maps[mapIndex] && trip.maps[mapIndex].coordinates.length > 0) {
+            if (trip && trip.maps && trip.maps[mapIndex]) {
                 trip.maps[mapIndex].visible = !trip.maps[mapIndex].visible;
                 window.saveToStorage();
                 window.renderMap();
