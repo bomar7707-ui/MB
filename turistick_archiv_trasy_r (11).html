@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="cs" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Archív Prošlých Turistických Tras ČR</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .leaflet-container { width: 100%; height: 100%; z-index: 10; background-color: #f1f5f9; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="h-full bg-slate-50 text-slate-800 flex flex-col md:flex-row overflow-hidden">
+
+    <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-20 opacity-0 transition-all duration-300 bg-slate-900 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center space-x-3 text-sm font-medium pointer-events-none">
+        <i id="toast-icon" class="fa-solid fa-circle-check text-emerald-400"></i>
+        <span id="toast-msg">Zpráva</span>
+    </div>
+
+    <aside class="w-full md:w-[420px] bg-white border-r border-slate-200 flex flex-col h-1/2 md:h-full z-20 shadow-lg shrink-0">
+        <div class="p-4 border-b border-slate-100 bg-gradient-to-r from-emerald-600 to-teal-700 text-white">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="p-2 bg-white/15 backdrop-blur-md rounded-xl">
+                        <i class="fa-solid fa-map-location-dot text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-lg tracking-tight">Archív Prošlých Tras</h1>
+                        <p class="text-xs text-emerald-100">Synchronizováno s Firebase</p>
+                    </div>
+                </div>
+                <button onclick="window.toggleSidebarMobile()" class="md:hidden text-white/80 hover:text-white p-2">
+                    <i class="fa-solid fa-bars text-lg"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-5 space-y-6">
+            
+            <div class="bg-emerald-50/60 border border-emerald-200/80 rounded-2xl p-4 shadow-sm space-y-3">
+                <h2 class="text-xs font-semibold uppercase tracking-wider text-emerald-800 flex items-center justify-between">
+                    <span><i class="fa-solid fa-cloud-arrow-down mr-2"></i> Import z Cloudu</span>
+                </h2>
+                <p class="text-xs text-slate-600">Aplikace se připojí do vaší Firebase databáze <strong>moje-hory</strong>, najde v poznámkách odkazy na Mapy.cz a přiřadí k nim názvy a parametry výšlapu.</p>
+                <div class="flex flex-col space-y-2">
+                    <button onclick="window.fetchFromFirebase()" id="btn-fetch-notes" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 px-4 rounded-xl text-xs font-semibold transition-colors shadow-sm flex items-center justify-center space-x-2">
+                        <i class="fa-solid fa-cloud-arrow-down"></i>
+                        <span>Načíst data z Horského zápisníku</span>
+                    </button>
+                    <button onclick="window.openPasteModal()" class="w-full bg-white hover:bg-slate-50 border border-emerald-200 text-emerald-700 py-2 px-4 rounded-xl text-xs font-medium transition-colors shadow-sm flex items-center justify-center space-x-2">
+                        <i class="fa-solid fa-paste"></i>
+                        <span>Ruční vložení textu s odkazem</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 shadow-sm">
+                <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3 flex items-center justify-between">
+                    <span><i class="fa-solid fa-chart-pie mr-2 text-emerald-600"></i> Statistika archívu na mapě</span>
+                </h2>
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-white p-3 rounded-xl border border-slate-200/60 shadow-xs">
+                        <span class="text-xs text-slate-500 block">Uložené trasy</span>
+                        <div class="text-lg font-bold text-slate-900 mt-0.5" id="stat-trips">0</div>
+                    </div>
+                    <div class="bg-white p-3 rounded-xl border border-slate-200/60 shadow-xs">
+                        <span class="text-xs text-slate-500 block">Stav databáze</span>
+                        <div class="text-xs font-bold text-emerald-600 mt-1 uppercase" id="stat-status">Připojeno</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Trasy načtené v mapě</h2>
+                    <button onclick="window.clearArchive()" class="text-[10px] bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700 px-2 py-1 rounded-lg font-medium transition-colors border border-rose-100">
+                        <i class="fa-solid fa-trash-can mr-1"></i> Vymazat vše
+                    </button>
+                </div>
+                <div id="trips-container" class="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                    <div class="text-center py-8 text-slate-400 text-xs italic bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                        Zatím nebyly načteny žádné odkazy.
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="p-4 border-t border-slate-100 bg-slate-50 flex flex-col gap-2">
+            <div class="text-[10px] text-slate-500 text-center mb-1">Volný import mapových tras (GPX) a záloha zobrazení</div>
+            <div class="flex items-center gap-2">
+                <label class="flex-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-medium py-2.5 px-3 rounded-xl text-xs transition-colors flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer">
+                    <i class="fa-solid fa-file-arrow-up text-emerald-500"></i>
+                    <span>Volný GPX</span>
+                    <input type="file" accept=".gpx" onchange="window.importGPX(event)" class="hidden">
+                </label>
+                <label class="flex-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-medium py-2.5 px-3 rounded-xl text-xs transition-colors flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer">
+                    <i class="fa-solid fa-upload text-slate-500"></i>
+                    <span>Záloha IN</span>
+                    <input type="file" accept=".json" onchange="window.importArchiveFile(event)" class="hidden">
+                </label>
+                <button onclick="window.exportArchive()" title="Uložit data zobrazení do JSON" class="bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-medium py-2.5 px-4 rounded-xl text-xs transition-colors flex items-center justify-center shadow-xs">
+                    <i class="fa-solid fa-download"></i>
+                </button>
+            </div>
+        </div>
+    </aside>
+
+    <main class="flex-1 h-1/2 md:h-full relative">
+        <div id="map" class="w-full h-full"></div>
+        
+        <div class="absolute top-4 right-4 z-20 bg-white/95 backdrop-blur-md p-3 rounded-2xl shadow-lg border border-slate-200/80 text-xs space-y-2 pointer-events-none">
+            <div class="font-semibold text-slate-700 mb-1">Legenda mapy</div>
+            <div class="flex items-center space-x-2">
+                <div class="w-4 h-1.5 bg-emerald-600 rounded-full"></div>
+                <span>Spárovaná GPX trasa</span>
+            </div>
+            <div class="text-[10px] text-slate-500 pt-1 border-t border-slate-100">Oficiální Mapy.cz Turistická</div>
+        </div>
+    </main>
+
+    <div id="paste-modal" class="hidden fixed inset-0 bg-slate-900/50 z-[100] flex items-center justify-center backdrop-blur-sm transition-opacity">
+        <div class="bg-white w-11/12 max-w-lg rounded-2xl shadow-2xl p-5 flex flex-col space-y-4">
+            <h3 class="font-bold text-slate-800 flex items-center"><i class="fa-solid fa-clipboard-list text-emerald-600 mr-2"></i> Ruční vložení odkazu</h3>
+            <p class="text-xs text-slate-500">Pokud máte odkaz na trasu (nebo text s odkazem) mimo vaši Firebase databázi, vložte ho sem.</p>
+            <textarea id="paste-textarea" class="w-full h-32 p-3 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" placeholder="Např. https://mapy.cz/s/..."></textarea>
+            <div class="flex justify-end space-x-3 pt-2">
+                <button onclick="window.closePasteModal()" class="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors">Zrušit</button>
+                <button onclick="window.processPastedText()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-xl transition-colors shadow-sm">Načíst z textu</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Skrytý input pro nahrávání GPX k dokumentu -->
+    <input type="file" id="attach-gpx-input" accept=".gpx" class="hidden" onchange="window.handleAttachGPX(event)">
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // VÁŠ PEVNÝ API KLÍČ MAPY.CZ pro turistický podklad
+        const apiKey = "3SfstVBaZryBHeEkOsw_DSAc8PwcV140TQvNslWDrQY";
+
+        // FIREBASE konfigurace z Cloudového Zápisníku (moje-hory)
+        const firebaseConfig = {
+            apiKey: "AIzaSyDg0j8KCyc-QlSjI80b-CsyLA1pecMlLVE",
+            authDomain: "moje-hory.firebaseapp.com",
+            projectId: "moje-hory",
+            storageBucket: "moje-hory.firebasestorage.app",
+            messagingSenderId: "307649543821",
+            appId: "1:307649543821:web:115122f080533b4c17acc4"
+        };
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // Globální proměnné vystavené pro HTML onclick
+        window.map = null;
+        window.archivedTrips = []; 
+        window.polylinesLayer = L.layerGroup();
+        window.currentAttachTripId = null;
+
+        // Formátovač data
+        function formatCzechDate(dateString) {
+            if (!dateString) return '';
+            const d = new Date(dateString);
+            if (isNaN(d)) return dateString;
+            return d.toLocaleDateString('cs-CZ');
+        }
+
+        window.onload = function() {
+            window.initMap();
+            window.loadFromStorage();
+        };
+
+        window.initMap = function() {
+            window.map = L.map('map', {
+                center: [49.7422, 15.3366],
+                zoom: 7,
+                zoomControl: false
+            });
+            L.control.zoom({ position: 'bottomright' }).addTo(window.map);
+
+            const mapyOutdoor = L.tileLayer(`https://api.mapy.cz/v1/maptiles/outdoor/256/{z}/{x}/{y}?apikey=${apiKey}`, {
+                minZoom: 2,
+                maxZoom: 19,
+                attribution: '&copy; <a href="https://www.seznam.cz">Seznam.cz a.s.</a>, Mapy.cz'
+            });
+            const openTopo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+                maxZoom: 17,
+                attribution: 'Map data: &copy; OpenStreetMap contributors, SRTM'
+            });
+
+            const baseLayers = {
+                "Mapy.cz Outdoor (Turistická)": mapyOutdoor,
+                "OpenTopoMap (Záloha)": openTopo
+            };
+
+            mapyOutdoor.addTo(window.map);
+            L.control.layers(baseLayers, null, { position: 'topleft' }).addTo(window.map);
+            window.polylinesLayer.addTo(window.map);
+        };
+
+        window.fetchFromFirebase = async function() {
+            const btn = document.getElementById('btn-fetch-notes');
+            const originalBtnHtml = btn.innerHTML;
+            btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i><span>Stahuji z Cloudu...</span>`;
+            document.getElementById('stat-status').innerText = 'Stahuji data';
+            document.getElementById('stat-status').className = 'text-xs font-bold text-amber-500 mt-1 uppercase';
+            
+            try {
+                // Přihlášení do vaší Firebase
+                await signInAnonymously(auth);
+                // Stažení všech výšlapů z kolekce
+                const querySnapshot = await getDocs(collection(db, 'vyslapy'));
+                
+                let addedCount = 0;
+                let updatedCount = 0;
+
+                querySnapshot.forEach((docSnap) => {
+                    const data = docSnap.data();
+                    const note = data.note || "";
+                    
+                    // Hledání Mapy.cz odkazu v poznámce (note)
+                    const urlRegex = /https?:\/\/(?:www\.|en\.)?mapy\.(?:cz|com)[^\s"'<>\\]+/i;
+                    const urlMatch = note.match(urlRegex);
+
+                    if (urlMatch) {
+                        const url = urlMatch[0].replace(/[.,;)]$/, '');
+                        const existingIndex = window.archivedTrips.findIndex(t => t.id === docSnap.id);
+
+                        const formattedDist = data.distance ? parseFloat(data.distance).toFixed(1) + " km" : "";
+                        const formattedDate = formatCzechDate(data.date);
+
+                        if (existingIndex !== -1) {
+                            // Záznam tu je - zaktualizujeme mu název a data, ale PONECHÁME jeho GPX souřadnice a viditelnost
+                            window.archivedTrips[existingIndex].name = data.name || "Neznámý vrchol";
+                            window.archivedTrips[existingIndex].distance = formattedDist;
+                            window.archivedTrips[existingIndex].date = formattedDate;
+                            window.archivedTrips[existingIndex].participants = data.participants || "";
+                            window.archivedTrips[existingIndex].originalUrl = url;
+                            updatedCount++;
+                        } else {
+                            // Nový záznam
+                            window.archivedTrips.push({
+                                id: docSnap.id,
+                                name: data.name || "Neznámý vrchol",
+                                date: formattedDate,
+                                distance: formattedDist,
+                                participants: data.participants || "",
+                                originalUrl: url,
+                                coordinates: [], // Prázdné, čeká na vložení GPX
+                                visible: false
+                            });
+                            addedCount++;
+                        }
+                    }
+                });
+
+                // Seřadit je podle data
+                window.archivedTrips.sort((a, b) => {
+                    // Konverze zpět na ISO pro řazení (z cs-CZ) nebo ignorujeme a řadíme jen jak přišly.
+                    // Ale kvůli stabilitě to necháme.
+                    return 0; 
+                });
+
+                window.saveToStorage();
+                window.renderSidebar();
+                
+                if (addedCount === 0 && updatedCount === 0) {
+                    window.showToast('Ve Firebase zápisníku nebyly nalezeny žádné nové trasy s Mapy.cz odkazem.', 'warning');
+                } else {
+                    window.showToast(`Nové z cloudu: ${addedCount} | Aktualizované údaje: ${updatedCount}`, 'success');
+                }
+                
+            } catch (err) {
+                console.error("Chyba spojení s Firebase:", err);
+                window.showToast('Nepodařilo se připojit k Firebase. Zkontrolujte oprávnění.', 'error');
+            } finally {
+                btn.innerHTML = originalBtnHtml;
+                document.getElementById('stat-status').innerText = 'Připojeno';
+                document.getElementById('stat-status').className = 'text-xs font-bold text-emerald-600 mt-1 uppercase';
+            }
+        };
+
+        window.openPasteModal = function() {
+            document.getElementById('paste-textarea').value = '';
+            document.getElementById('paste-modal').classList.remove('hidden');
+        };
+
+        window.closePasteModal = function() {
+            document.getElementById('paste-modal').classList.add('hidden');
+        };
+
+        window.processPastedText = function() {
+            const text = document.getElementById('paste-textarea').value;
+            if (!text.trim()) { window.showToast('Textové pole je prázdné', 'warning'); return; }
+            
+            const urlRegex = /https?:\/\/(?:www\.|en\.)?mapy\.(?:cz|com)[^\s"'<>\\]+/gi;
+            const matches = [...text.matchAll(urlRegex)];
+
+            if (matches.length === 0) {
+                window.showToast('V textu nebyly nalezeny žádné odkazy.', 'error');
+                return;
+            }
+
+            let addedCount = 0;
+            for (let i = 0; i < matches.length; i++) {
+                const url = matches[i][0].replace(/[.,;)]$/, '');
+                if (window.archivedTrips.some(t => t.originalUrl === url)) continue;
+                
+                window.archivedTrips.push({
+                    id: 'manual_' + Date.now() + '_' + addedCount,
+                    name: 'Ručně vložená trasa #' + (window.archivedTrips.length + 1),
+                    originalUrl: url,
+                    coordinates: [], 
+                    visible: false
+                });
+                addedCount++;
+            }
+            
+            if (addedCount > 0) {
+                window.saveToStorage();
+                window.renderSidebar();
+                window.showToast(`Uloženo ${addedCount} nových odkazů.`);
+            } else {
+                window.showToast('Všechny vložené odkazy již v mapě jsou.', 'success');
+            }
+            window.closePasteModal();
+        };
+
+        window.triggerAttachGPX = function(id) {
+            window.currentAttachTripId = id;
+            document.getElementById('attach-gpx-input').click();
+        };
+
+        window.handleAttachGPX = function(event) {
+            const file = event.target.files[0];
+            if (!file || !window.currentAttachTripId) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(e.target.result, "text/xml");
+                    const trackPoints = xmlDoc.getElementsByTagName("trkpt");
+                    const coords = [];
+                    for (let i = 0; i < trackPoints.length; i++) {
+                        coords.push([parseFloat(trackPoints[i].getAttribute("lat")), parseFloat(trackPoints[i].getAttribute("lon"))]);
+                    }
+
+                    if (coords.length > 0) {
+                        const tripIndex = window.archivedTrips.findIndex(t => t.id === window.currentAttachTripId);
+                        if (tripIndex !== -1) {
+                            window.archivedTrips[tripIndex].coordinates = coords;
+                            window.archivedTrips[tripIndex].visible = true; 
+                            window.saveToStorage();
+                            window.renderMap();
+                            window.renderSidebar();
+                            window.showToast('GPX křivka byla spárována s výšlapem!');
+                        }
+                    } else {
+                        window.showToast('Nahrávaný GPX soubor neobsahuje trasu', 'warning');
+                    }
+                } catch (err) { window.showToast('Chyba při čtení GPX', 'error'); }
+            };
+            reader.readAsText(file);
+            event.target.value = false;
+            window.currentAttachTripId = null;
+        };
+
+        window.importGPX = function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const xmlDoc = new DOMParser().parseFromString(e.target.result, "text/xml");
+                    const trackPoints = xmlDoc.getElementsByTagName("trkpt");
+                    const coords = Array.from(trackPoints).map(pt => [parseFloat(pt.getAttribute("lat")), parseFloat(pt.getAttribute("lon"))]);
+                    if (coords.length > 0) {
+                        const nameEl = xmlDoc.getElementsByTagName("name")[0];
+                        window.archivedTrips.push({
+                            id: 'gpx_' + Date.now(),
+                            name: nameEl ? nameEl.textContent : file.name.replace('.gpx', ''),
+                            date: formatCzechDate(new Date().toISOString()),
+                            coordinates: coords,
+                            visible: true
+                        });
+                        window.saveToStorage();
+                        window.renderMap();
+                        window.renderSidebar();
+                        window.showToast('Volný GPX nahrán');
+                    }
+                } catch (err) { window.showToast('Chyba čtení', 'error'); }
+            };
+            reader.readAsText(file);
+            event.target.value = false;
+        };
+
+        window.removeTrip = function(id) {
+            window.archivedTrips = window.archivedTrips.filter(t => t.id !== id);
+            window.saveToStorage();
+            window.renderMap();
+            window.renderSidebar();
+            window.showToast('Trasa odebrána ze zobrazení', 'warning');
+        };
+
+        window.clearArchive = function() {
+            if (window.archivedTrips.length === 0) return;
+            if (confirm('Vymazat všechny zobrazené trasy z této mapy? (Tímto NEsmažete data ve vašem cloudu, jen na mapě).')) {
+                window.archivedTrips = [];
+                window.saveToStorage();
+                window.renderMap();
+                window.renderSidebar();
+                window.showToast('Zobrazení vymazáno');
+            }
+        };
+
+        window.toggleTripVisibility = function(id) {
+            const trip = window.archivedTrips.find(t => t.id === id);
+            if (trip && trip.coordinates && trip.coordinates.length > 0) {
+                trip.visible = !trip.visible;
+                window.saveToStorage();
+                window.renderMap();
+                window.renderSidebar();
+            }
+        };
+
+        window.renderMap = function() {
+            window.polylinesLayer.clearLayers();
+            let bounds = L.latLngBounds();
+            let hasVisibleRoutes = false;
+
+            window.archivedTrips.forEach(trip => {
+                if (trip.visible && trip.coordinates && trip.coordinates.length > 0) {
+                    hasVisibleRoutes = true;
+                    const line = L.polyline(trip.coordinates, {
+                        color: '#059669', weight: 5, opacity: 0.9, lineCap: 'round'
+                    });
+                    line.bindPopup(`<b>${trip.name}</b>`);
+                    window.polylinesLayer.addLayer(line);
+                    trip.coordinates.forEach(coord => bounds.extend(coord));
+                }
+            });
+            if (hasVisibleRoutes) window.map.fitBounds(bounds, { padding: [30, 30] });
+        };
+
+        window.renderSidebar = function() {
+            const container = document.getElementById('trips-container');
+            document.getElementById('stat-trips').innerText = window.archivedTrips.length;
+
+            if (window.archivedTrips.length === 0) {
+                container.innerHTML = `<div class="text-center py-8 text-slate-400 text-xs italic bg-slate-50 rounded-xl border border-dashed border-slate-200">Zatím nebyly načteny žádné odkazy.</div>`;
+                return;
+            }
+
+            container.innerHTML = window.archivedTrips.map(trip => {
+                const hasGeom = trip.coordinates && trip.coordinates.length > 0;
+                return `
+                <div class="flex flex-col p-3 bg-white border ${trip.visible && hasGeom ? 'border-emerald-200 bg-emerald-50/20' : 'border-slate-200/80'} rounded-xl shadow-xs text-xs transition-all">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-3 overflow-hidden flex-1">
+                            ${hasGeom ? `
+                                <button onclick="window.toggleTripVisibility('${trip.id}')" class="w-5 h-5 rounded-md flex items-center justify-center ${trip.visible ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-500'} shrink-0 transition-colors" title="Zobrazit na mapě">
+                                    <i class="fa-solid fa-eye text-[10px]"></i>
+                                </button>
+                            ` : `
+                                <button onclick="window.triggerAttachGPX('${trip.id}')" class="w-5 h-5 rounded-md flex items-center justify-center bg-rose-100 text-rose-600 hover:bg-rose-600 hover:text-white shrink-0 transition-colors" title="Klikněte pro spárování s GPX.">
+                                    <i class="fa-solid fa-file-arrow-up text-[10px]"></i>
+                                </button>
+                            `}
+                            <div class="overflow-hidden">
+                                <div class="font-semibold text-slate-800 truncate" title="${trip.name}">${trip.name}</div>
+                                <div class="flex items-center space-x-2 text-[10px] text-slate-500 mt-0.5">
+                                    ${trip.date ? `<span><i class="fa-regular fa-calendar mr-1"></i> ${trip.date}</span>` : ''}
+                                    ${trip.distance ? `<span><i class="fa-solid fa-route mr-1 text-emerald-500"></i> ${trip.distance}</span>` : ''}
+                                </div>
+                                ${trip.participants ? `<div class="text-[10px] text-slate-600 mt-0.5"><i class="fa-solid fa-user-group mr-1 text-sky-500"></i> ${trip.participants}</div>` : ''}
+                            </div>
+                        </div>
+                        <button onclick="window.removeTrip('${trip.id}')" class="text-slate-400 hover:text-rose-600 p-1.5 transition-colors shrink-0">
+                            <i class="fa-solid fa-trash-can text-xs"></i>
+                        </button>
+                    </div>
+                    ${trip.originalUrl ? `
+                        <div class="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between">
+                            <a href="${trip.originalUrl}" target="_blank" class="text-[11px] text-emerald-600 hover:text-emerald-700 font-medium flex items-center">
+                                <i class="fa-solid fa-arrow-up-right-from-square mr-1.5"></i> Otevřít na Mapy.cz
+                            </a>
+                            ${!hasGeom ? `
+                                <button onclick="window.triggerAttachGPX('${trip.id}')" class="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1.5 rounded-lg transition-colors font-medium border border-slate-200 flex items-center">
+                                    <i class="fa-solid fa-plus mr-1 text-emerald-500"></i> GPX
+                                </button>
+                            ` : ''}
+                        </div>
+                    ` : ''}
+                </div>
+            `}).join('');
+        };
+
+        window.saveToStorage = () => localStorage.setItem('hikingArchiveDataFirebase', JSON.stringify(window.archivedTrips));
+        window.loadFromStorage = () => {
+            const stored = localStorage.getItem('hikingArchiveDataFirebase');
+            if (stored) {
+                try {
+                    window.archivedTrips = JSON.parse(stored);
+                    window.renderMap();
+                    window.renderSidebar();
+                } catch (e) { }
+            }
+        };
+
+        window.exportArchive = function() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(window.archivedTrips, null, 2));
+            const a = document.createElement('a');
+            a.setAttribute("href", dataStr);
+            a.setAttribute("download", `mapa_zobrazeni_${new Date().toISOString().slice(0,10)}.json`);
+            document.body.appendChild(a);
+            a.click(); a.remove();
+        };
+
+        window.importArchiveFile = function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (Array.isArray(data)) { window.archivedTrips = data; window.saveToStorage(); window.renderMap(); window.renderSidebar(); window.showToast('Zobrazení importováno'); }
+                } catch (err) { window.showToast('Chybný formát', 'error'); }
+            };
+            reader.readAsText(file);
+            event.target.value = false;
+        };
+
+        window.showToast = function(msg, type = 'success') {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-msg').innerText = msg;
+            const icon = document.getElementById('toast-icon');
+            icon.className = type === 'success' ? "fa-solid fa-circle-check text-emerald-400" : (type === 'warning' ? "fa-solid fa-triangle-exclamation text-amber-400" : "fa-solid fa-circle-xmark text-rose-400");
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 4000);
+        };
+
+        window.toggleSidebarMobile = function() {
+            const sb = document.querySelector('aside');
+            sb.classList.toggle('h-1/2'); sb.classList.toggle('h-full');
+        };
+    </script>
+</body>
+</html>
