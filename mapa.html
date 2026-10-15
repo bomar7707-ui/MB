@@ -553,9 +553,16 @@
                 });
             });
 
-            // Vykreslení: nejdříve všechny nevybrané trasy, poté vybrané, aby byly vždy bezpečně navrchu
+            // Vykreslení: nejdříve všechny nevybrané trasy, poté vybrané
             unselectedLines.forEach(layer => window.polylinesLayer.addLayer(layer));
-            selectedLines.forEach(layer => window.polylinesLayer.addLayer(layer));
+            
+            // Vybrané trasy přidáme a navíc natvrdo vnutíme jejich vykreslení úplně nahoře
+            selectedLines.forEach(layer => {
+                window.polylinesLayer.addLayer(layer);
+                if (typeof layer.bringToFront === 'function') {
+                    layer.bringToFront(); // Zásadní funkce: posune SVG čáru do úplného popředí
+                }
+            });
 
             if (hasVisibleRoutes && window.selectedTripId) {
                 const selTrip = window.archivedTrips.find(t => t.id === window.selectedTripId);
