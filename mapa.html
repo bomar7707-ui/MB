@@ -182,7 +182,6 @@
         try {
             app = initializeApp(firebaseConfig);
             auth = getAuth(app);
-            // LongPolling ensures mobile networks / restrictive browsers can connect smoothly
             try {
                 db = initializeFirestore(app, { experimentalForceLongPolling: true });
             } catch(e) {
@@ -335,7 +334,7 @@
                 if (window.archivedTrips.length > 0) {
                     window.showToast('Byla načtena uložená lokální data z paměti.', 'success');
                 } else {
-                    window.showToast('Připojení k Firebase z mobilní sítě selhalo. Použijte Záloha IN.', 'warning');
+                    window.showToast('Připojení k Firebase selhalo. Použijte prosím zálohu JSON.', 'warning');
                 }
             } finally {
                 btn.innerHTML = originalBtnHtml;
@@ -348,12 +347,12 @@
             document.getElementById('attach-gpx-input').click();
         };
 
-        window.handleAttachGPX = function(event) {
+        window.handleAttachGPX = async function(event) {
             const file = event.target.files[0];
             if (!file || window.currentAttachTripId === null || window.currentAttachMapIndex === null) return;
 
             const reader = new FileReader();
-            reader.onload = function(e) {
+            reader.onload = async function(e) {
                 try {
                     const parser = new DOMParser();
                     const xmlDoc = parser.parseFromString(e.target.result, "text/xml");
@@ -366,12 +365,14 @@
                     if (coords.length > 0) {
                         const tripIndex = window.archivedTrips.findIndex(t => t.id === window.currentAttachTripId);
                         if (tripIndex !== -1 && window.archivedTrips[tripIndex].maps[window.currentAttachMapIndex]) {
-                            window.archivedTrips[tripIndex].maps[window.currentAttachMapIndex].coordinates = coords;
-                            window.archivedTrips[tripIndex].maps[window.currentAttachMapIndex].visible = true; 
+                            const trip = window.archivedTrips[tripIndex];
+                            trip.maps[window.currentAttachMapIndex].coordinates = coords;
+                            trip.maps[window.currentAttachMapIndex].visible = true;
+                            
                             window.saveToStorage();
                             window.renderMap();
                             window.renderSidebar();
-                            window.showToast('GPX pro tuto část trasy bylo spárováno!');
+                            window.showToast('GPX úmyslně spárováno pro tuto mapu!');
                         }
                     } else {
                         window.showToast('GPX soubor neobsahuje žádné body trasy', 'warning');
@@ -493,6 +494,9 @@
             const filterMonth = document.getElementById('filter-month').value;
             const filterParticipant = document.getElementById('filter-participant').value;
 
+            const unselectedLines = [];
+            const selectedLines = [];
+
             window.archivedTrips.forEach(trip => {
                 let d = trip.rawDate ? new Date(trip.rawDate) : null;
                 if (!d && trip.date) {
@@ -537,12 +541,21 @@
                             }
                         });
 
-                        window.polylinesLayer.addLayer(shadowLine);
-                        window.polylinesLayer.addLayer(mainLine);
+                        // Místo přímého vložení je rozdělíme do skupin
+                        if (isSelected) {
+                            selectedLines.push(shadowLine, mainLine);
+                        } else {
+                            unselectedLines.push(shadowLine, mainLine);
+                        }
+                        
                         mapObj.coordinates.forEach(coord => bounds.extend(coord));
                     }
                 });
             });
+
+            // Vykreslení: nejdříve všechny nevybrané trasy, poté vybrané, aby byly vždy bezpečně navrchu
+            unselectedLines.forEach(layer => window.polylinesLayer.addLayer(layer));
+            selectedLines.forEach(layer => window.polylinesLayer.addLayer(layer));
 
             if (hasVisibleRoutes && window.selectedTripId) {
                 const selTrip = window.archivedTrips.find(t => t.id === window.selectedTripId);
@@ -710,9 +723,9 @@
             `}).join('');
         };
 
-        window.saveToStorage = () => localStorage.setItem('hikingArchiveDataFirebase', JSON.stringify(window.archivedTrips));
+        window.saveToStorage = () => localStorage.setItem('hikingArchiveDataJsonOnly', JSON.stringify(window.archivedTrips));
         window.loadFromStorage = () => {
-            const stored = localStorage.getItem('hikingArchiveDataFirebase');
+            const stored = localStorage.getItem('hikingArchiveDataJsonOnly');
             if (stored) {
                 try {
                     window.archivedTrips = JSON.parse(stored);
@@ -760,7 +773,7 @@
                         window.updateFilterDropdowns();
                         window.renderMap(); 
                         window.renderSidebar(); 
-                        window.showToast('Zobrazení importováno'); 
+                        window.showToast('Kompletní záloha úspěšně importována'); 
                     }
                 } catch (err) { window.showToast('Chybný formát souboru', 'error'); }
             };
