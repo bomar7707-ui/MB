@@ -188,7 +188,6 @@
         import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Firebase konfigurace, kterou jsi zadal
         const firebaseConfig = {
             apiKey: "AIzaSyDg0j8KCyc-QlSjI80b-CsyLA1pecMlLVE",
             authDomain: "moje-hory.firebaseapp.com",
@@ -198,15 +197,14 @@
             appId: "1:307649543821:web:115122f080533b4c17acc4"
         };
 
-        // Inicializace Firebase
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
 
         let hikes = [];
         let editingId = null;
+        let isInitialLoad = true; // Sleduje, zda se aplikace právě spustila
 
-        // DOM elementy
         const form = document.getElementById('hike-form');
         const hikeNameInput = document.getElementById('hike-name');
         const hikeDistanceInput = document.getElementById('hike-distance');
@@ -223,7 +221,6 @@
         
         hikeDateInput.valueAsDate = new Date();
 
-        // Indikátor stavu připojení k Firebase
         const statusEl = document.getElementById('connection-status');
         const statusDot = document.getElementById('status-dot');
         const statusText = document.getElementById('status-text');
@@ -243,11 +240,10 @@
 
         async function initApp() {
             try {
-                // Autentizace pro zajištění přístupu
                 await signInAnonymously(auth);
                 listenToHikes();
             } catch (error) {
-                console.warn("Anonymní přihlášení selhalo, zkouším přístup do databáze napřímo...", error);
+                console.warn("Anonymní přihlášení selhalo...", error);
                 listenToHikes();
             }
         }
@@ -255,7 +251,6 @@
         function listenToHikes() {
             const vyslapyRef = collection(db, 'vyslapy');
             
-            // onSnapshot automaticky reaguje na každou změnu v databázi napříč zařízeními
             onSnapshot(vyslapyRef, (snapshot) => {
                 hikes = snapshot.docs.map(docSnap => ({
                     id: docSnap.id,
@@ -271,14 +266,19 @@
             });
         }
 
-        // Spuštění připojení
         initApp();
 
         function updateFilters() {
-            // ROKY
             const currentYearVal = filterYearEl.value;
             const years = [...new Set(hikes.map(hike => new Date(hike.date).getFullYear()))].filter(y => !isNaN(y)).sort((a, b) => b - a);
             
+            const currentRealYear = new Date().getFullYear();
+            // Pokud v datech aktuální rok ještě není, ale chceme ho jako výchozí, ujistíme se, že v seznamu let bude
+            if (!years.includes(currentRealYear)) {
+                years.push(currentRealYear);
+                years.sort((a, b) => b - a);
+            }
+
             filterYearEl.innerHTML = '<option value="all">Všechny</option>';
             years.forEach(year => {
                 const option = document.createElement('option');
@@ -287,10 +287,16 @@
                 filterYearEl.appendChild(option);
             });
             
-            if (years.includes(parseInt(currentYearVal))) {
+            if (isInitialLoad) {
+                // Při prvním načtení aplikace nastavíme rovnou aktuální rok
+                if (years.includes(currentRealYear)) {
+                    filterYearEl.value = currentRealYear;
+                }
+                isInitialLoad = false;
+            } else if (years.includes(parseInt(currentYearVal))) {
                 filterYearEl.value = currentYearVal;
-            } else if (currentYearVal === 'all') {
-                filterYearEl.value = 'all';
+            } else {
+                filterYearEl.value = currentYearVal;
             }
 
             // ÚČASTNÍCI
@@ -339,7 +345,6 @@
             const selectedMonth = filterMonthEl.value;
             const selectedParticipant = filterParticipantEl.value;
 
-            // Filtrování a řazení od NEJNOVĚJŠÍHO (desc)
             const filteredHikes = hikes.filter(hike => {
                 const d = new Date(hike.date);
                 if(isNaN(d)) return false;
@@ -351,7 +356,6 @@
                 return matchYear && matchMonth && matchParticipant;
             }).sort((a, b) => new Date(b.date) - new Date(a.date));
 
-            // Dynamický součet kilometrů pro aktuální filtr
             const totalKm = filteredHikes.reduce((sum, h) => sum + parseFloat(h.distance || 0), 0);
             totalDistanceEl.textContent = totalKm.toFixed(1).replace('.0', '');
 
@@ -623,7 +627,6 @@
             reader.readAsText(file);
         };
 
-        // Event listenery pro filtry
         filterYearEl.addEventListener('change', window.renderHikes);
         filterMonthEl.addEventListener('change', window.renderHikes);
         filterParticipantEl.addEventListener('change', window.renderHikes);
