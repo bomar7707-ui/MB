@@ -165,7 +165,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, initializeFirestore, collection, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, initializeFirestore, collection, getDocs, doc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const apiKey = "3SfstVBaZryBHeEkOsw_DSAc8PwcV140TQvNslWDrQY";
 
@@ -217,6 +217,11 @@
                 zoom: 7,
                 zoomControl: false
             });
+
+            // Vytvoříme speciální vrstvu pro vybrané trasy, aby byla VŽDY nahoře
+            window.map.createPane('selectedTripPane');
+            window.map.getPane('selectedTripPane').style.zIndex = 650;
+
             L.control.zoom({ position: 'bottomright' }).addTo(window.map);
 
             const mapyOutdoor = L.tileLayer(`https://api.mapy.cz/v1/maptiles/outdoor/256/{z}/{x}/{y}?apikey=${apiKey}`, {
@@ -254,6 +259,9 @@
                 if (db) {
                     try {
                         querySnapshot = await getDocs(collection(db, 'vyslapy'));
+                        try {
+                            window.gpxSnapshot = await getDocs(collection(db, 'vyslapy_gpx'));
+                        } catch(e) { console.warn("Nenalezeny cloud GPX zálohy"); }
                     } catch (fetchErr) {
                         console.warn("Firestore direct read error:", fetchErr);
                     }
@@ -261,6 +269,11 @@
 
                 if (!querySnapshot || querySnapshot.empty) {
                     throw new Error("Žádná data nebyla vrácena z databáze.");
+                }
+
+                const gpxDataMap = {};
+                if (window.gpxSnapshot) {
+                    window.gpxSnapshot.forEach(d => { gpxDataMap[d.id] = d.data(); });
                 }
 
                 let addedCount = 0;
@@ -274,6 +287,7 @@
                     const urlMatches = note.match(urlRegex);
 
                     const tripId = docSnap.id;
+                    const gpxDoc = gpxDataMap[tripId];
                     const formattedDist = data.distance ? parseFloat(data.distance).toFixed(1) + " km" : "";
                     const formattedDate = formatCzechDate(data.date);
                     const rawDate = data.date || "";
@@ -283,18 +297,31 @@
                     const existingIndex = window.archivedTrips.findIndex(t => t.id === tripId);
                     const cleanUrls = urlMatches ? Array.from(new Set(urlMatches.map(u => u.replace(/[.,;)]$/, '')))) : [];
 
-                    if (existingIndex !== -1) {
-                        const existingTrip = window.archivedTrips[existingIndex];
-                        
-                        const updatedMaps = cleanUrls.map((url) => {
-                            const oldMap = existingTrip.maps ? existingTrip.maps.find(m => m.url === url) : null;
+                    // Rozhodnutí o prioritě: pokud je gpx uloženo v cloudu, má absolutní přednost
+                    let updatedMaps = [];
+                    if (gpxDoc && gpxDoc.maps) {
+                        updatedMaps = cleanUrls.map((url, idx) => {
+                            const cloudMap = gpxDoc.maps[idx] || gpxDoc.maps.find(m => m.url === url);
+                            return {
+                                url: url,
+                                coordinates: cloudMap && cloudMap.coordinates ? cloudMap.coordinates : [],
+                                visible: cloudMap && cloudMap.visible !== undefined ? cloudMap.visible : true
+                            };
+                        });
+                    } else {
+                        // Fallback na lokální paměť, pokud cloud ještě data nemá
+                        const existingTrip = existingIndex !== -1 ? window.archivedTrips[existingIndex] : null;
+                        updatedMaps = cleanUrls.map((url) => {
+                            const oldMap = existingTrip && existingTrip.maps ? existingTrip.maps.find(m => m.url === url) : null;
                             return {
                                 url: url,
                                 coordinates: oldMap ? oldMap.coordinates : [],
                                 visible: oldMap ? oldMap.visible : true
                             };
                         });
+                    }
 
+                    if (existingIndex !== -1) {
                         window.archivedTrips[existingIndex].name = tripName;
                         window.archivedTrips[existingIndex].distance = formattedDist;
                         window.archivedTrips[existingIndex].date = formattedDate;
@@ -303,12 +330,6 @@
                         window.archivedTrips[existingIndex].maps = updatedMaps;
                         updatedCount++;
                     } else {
-                        const mapsArr = cleanUrls.map(url => ({
-                            url: url,
-                            coordinates: [],
-                            visible: true
-                        }));
-
                         window.archivedTrips.push({
                             id: tripId,
                             name: tripName,
@@ -316,9 +337,20 @@
                             rawDate: rawDate,
                             distance: formattedDist,
                             participants: participants,
-                            maps: mapsArr
+                            maps: updatedMaps
                         });
                         addedCount++;
+                    }
+                });
+
+                // Přidání volných GPX tras (ty, co nepatří k zápisníku), které jste dříve uložili do cloudu
+                Object.keys(gpxDataMap).forEach(key => {
+                    if (key.startsWith('gpx_')) {
+                        const standalone = gpxDataMap[key];
+                        if (standalone && standalone.name && window.archivedTrips.findIndex(t => t.id === key) === -1) {
+                            window.archivedTrips.push(standalone);
+                            addedCount++;
+                        }
                     }
                 });
 
@@ -369,10 +401,19 @@
                             trip.maps[window.currentAttachMapIndex].coordinates = coords;
                             trip.maps[window.currentAttachMapIndex].visible = true;
                             
+                            window.showToast('Zpracovávám a ukládám do cloudu...', 'warning');
+
+                            if (db) {
+                                try {
+                                    // Odešleme souřadnice do cloudu natrvalo
+                                    await setDoc(doc(db, 'vyslapy_gpx', trip.id), { maps: trip.maps }, { merge: true });
+                                } catch(e) { console.error('Cloud save failed', e); }
+                            }
+
                             window.saveToStorage();
                             window.renderMap();
                             window.renderSidebar();
-                            window.showToast('GPX úmyslně spárováno pro tuto mapu!');
+                            window.showToast('GPX spárováno a trvale uloženo do cloudu!');
                         }
                     } else {
                         window.showToast('GPX soubor neobsahuje žádné body trasy', 'warning');
@@ -397,8 +438,9 @@
                     if (coords.length > 0) {
                         const nameEl = xmlDoc.getElementsByTagName("name")[0];
                         const nowIso = new Date().toISOString();
-                        window.archivedTrips.push({
-                            id: 'gpx_' + Date.now(),
+                        const newId = 'gpx_' + Date.now();
+                        const newTrip = {
+                            id: newId,
                             name: nameEl ? nameEl.textContent : file.name.replace('.gpx', ''),
                             date: formatCzechDate(nowIso),
                             rawDate: nowIso,
@@ -409,7 +451,14 @@
                                 coordinates: coords,
                                 visible: true
                             }]
-                        });
+                        };
+
+                        window.archivedTrips.push(newTrip);
+                        
+                        if (db) {
+                            setDoc(doc(db, 'vyslapy_gpx', newId), newTrip).catch(e=>console.warn(e));
+                        }
+
                         window.saveToStorage();
                         window.updateFilterDropdowns();
                         window.renderMap();
@@ -422,23 +471,39 @@
             event.target.value = false;
         };
 
-        window.removeTrip = function(id) {
+        window.removeTrip = async function(id) {
             if (window.selectedTripId === id) window.resetSelection();
             window.archivedTrips = window.archivedTrips.filter(t => t.id !== id);
             window.saveToStorage();
+            
+            // Smazat volné gpx z cloudu, pokud je uživatel vymaže
+            if (db && id.startsWith('gpx_')) {
+                try { await deleteDoc(doc(db, 'vyslapy_gpx', id)); } catch(e){}
+            }
+
             window.updateFilterDropdowns();
             window.renderMap();
             window.renderSidebar();
-            window.showToast('Výšlap odebrán z archívu', 'warning');
         };
 
-        window.toggleMapVisibility = function(tripId, mapIndex) {
+        window.toggleMapVisibility = async function(tripId, mapIndex) {
             const trip = window.archivedTrips.find(t => t.id === tripId);
             if (trip && trip.maps && trip.maps[mapIndex]) {
                 trip.maps[mapIndex].visible = !trip.maps[mapIndex].visible;
                 window.saveToStorage();
                 window.renderMap();
                 window.renderSidebar();
+                
+                // Uložení stavu viditelnosti (očička) do cloudu
+                if (db) {
+                    try {
+                        if (tripId.startsWith('gpx_')) {
+                            await setDoc(doc(db, 'vyslapy_gpx', tripId), trip, { merge: true });
+                        } else {
+                            await setDoc(doc(db, 'vyslapy_gpx', tripId), { maps: trip.maps }, { merge: true });
+                        }
+                    } catch(e){}
+                }
             }
         };
 
@@ -525,10 +590,12 @@
                         const opacity = isSelected ? 1.0 : 0.95;
 
                         const shadowLine = L.polyline(mapObj.coordinates, {
-                            color: shadowColor, weight: weight + 3, opacity: 0.8, lineCap: 'round', lineJoin: 'round'
+                            color: shadowColor, weight: weight + 3, opacity: 0.8, lineCap: 'round', lineJoin: 'round',
+                            pane: isSelected ? 'selectedTripPane' : 'overlayPane'
                         });
                         const mainLine = L.polyline(mapObj.coordinates, {
-                            color: lineColor, weight: weight, opacity: opacity, lineCap: 'round', lineJoin: 'round'
+                            color: lineColor, weight: weight, opacity: opacity, lineCap: 'round', lineJoin: 'round',
+                            pane: isSelected ? 'selectedTripPane' : 'overlayPane'
                         });
                         
                         mainLine.bindPopup(`<b>${trip.name} (Část ${mIdx + 1})</b>${trip.distance ? '<br>Vzdálenost: ' + trip.distance : ''}`);
@@ -553,16 +620,9 @@
                 });
             });
 
-            // Vykreslení: nejdříve všechny nevybrané trasy, poté vybrané
+            // Vykreslení
             unselectedLines.forEach(layer => window.polylinesLayer.addLayer(layer));
-            
-            // Vybrané trasy přidáme a navíc natvrdo vnutíme jejich vykreslení úplně nahoře
-            selectedLines.forEach(layer => {
-                window.polylinesLayer.addLayer(layer);
-                if (typeof layer.bringToFront === 'function') {
-                    layer.bringToFront(); // Zásadní funkce: posune SVG čáru do úplného popředí
-                }
-            });
+            selectedLines.forEach(layer => window.polylinesLayer.addLayer(layer));
 
             if (hasVisibleRoutes && window.selectedTripId) {
                 const selTrip = window.archivedTrips.find(t => t.id === window.selectedTripId);
