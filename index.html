@@ -500,7 +500,7 @@
                         if (route.gpxData) {
                             partHtml += `<a href="data:application/gpx+xml;charset=utf-8,${encodeURIComponent(route.gpxData)}" download="${(hike.name + (hikeRoutes.length > 1 ? '_usek_' + (idx+1) : '')).replace(/[^a-z0-9]/gi, '_').toLowerCase()}.gpx" class="flex items-center gap-1.5 text-xs font-bold text-sky-700 bg-sky-50 hover:bg-sky-100 px-2.5 py-1.5 rounded-md border border-sky-200 transition-colors" title="${route.gpxName || 'Stáhnout GPX'}">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                                GPX <span class="hidden sm:inline opacity-70 font-normal">(${route.gpxName || 'soubor'})</span>
+                                GPX
                             </a>`;
                         }
                         partHtml += `</div>`;
