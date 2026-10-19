@@ -10,6 +10,8 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js pro výškový profil -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Google Inter Font -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -75,6 +77,21 @@
                     <div class="bg-white p-3 rounded-xl border border-slate-200/60 shadow-xs">
                         <span class="text-[10px] text-slate-500 block">Celková vzdálenost</span>
                         <div class="text-lg font-bold text-emerald-600 mt-0.5" id="stat-distance">0 km</div>
+                    </div>
+                    <div class="bg-white p-3 rounded-xl border border-slate-200/60 shadow-xs">
+                        <span class="text-[10px] text-slate-500 block">Nastoupáno</span>
+                        <div class="text-lg font-bold text-rose-600 mt-0.5"><i class="fa-solid fa-arrow-trend-up mr-1 text-xs"></i><span id="stat-ascent">0</span> m</div>
+                    </div>
+                    <div class="bg-white p-3 rounded-xl border border-slate-200/60 shadow-xs">
+                        <span class="text-[10px] text-slate-500 block">Sestoupáno</span>
+                        <div class="text-lg font-bold text-sky-600 mt-0.5"><i class="fa-solid fa-arrow-trend-down mr-1 text-xs"></i><span id="stat-descent">0</span> m</div>
+                    </div>
+                    <div class="bg-white p-3 rounded-xl border border-slate-200/60 shadow-xs col-span-2">
+                        <span class="text-[10px] text-slate-500 block">Nejvyšší dosažený bod</span>
+                        <div class="text-lg font-bold text-indigo-600 mt-0.5 flex flex-wrap items-center gap-1.5">
+                            <span><i class="fa-solid fa-mountain-sun mr-1 text-xs"></i><span id="stat-max-ele">-</span> m n. m.</span>
+                            <span id="stat-max-trip" class="text-xs font-normal text-slate-500 truncate max-w-[240px]" title=""></span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -161,11 +178,11 @@
         </div>
     </aside>
 
-    <!-- Map Container -->
+    <!-- Map Container & Elevation Profile -->
     <main class="flex-1 h-1/2 md:h-full relative">
         <div id="map" class="w-full h-full"></div>
         
-        <div class="absolute top-4 right-4 z-20 bg-white/95 backdrop-blur-md p-3 rounded-2xl shadow-lg border border-slate-200/80 text-xs space-y-2 pointer-events-none">
+        <div class="absolute top-4 right-4 z-[400] bg-white/95 backdrop-blur-md p-3 rounded-2xl shadow-lg border border-slate-200/80 text-xs space-y-2 pointer-events-none">
             <div class="font-semibold text-slate-700 mb-1">Legenda mapy</div>
             <div class="flex items-center space-x-2">
                 <div class="w-4 h-1.5 bg-[#00f5d4] rounded-full"></div>
@@ -175,7 +192,28 @@
                 <div class="w-4 h-1.5 bg-rose-600 rounded-full"></div>
                 <span>Aktivně vybraná trasa</span>
             </div>
-            <div class="text-[10px] text-slate-500 pt-1 border-t border-slate-100">Mapy.cz Outdoor</div>
+            <div class="text-[10px] text-slate-500 pt-1 border-t border-slate-100 mt-1">Mapy.cz Outdoor</div>
+        </div>
+
+        <!-- Elevation Profile Panel -->
+        <div id="elevation-panel" class="hidden absolute bottom-4 left-4 right-4 md:left-6 md:right-6 z-[400] bg-white/95 backdrop-blur-md rounded-2xl p-4 shadow-2xl border border-slate-200/90 text-xs transition-all duration-300">
+            <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center space-x-3 overflow-hidden">
+                    <span class="p-1.5 bg-emerald-100 text-emerald-700 rounded-lg shrink-0">
+                        <i class="fa-solid fa-chart-area"></i>
+                    </span>
+                    <div class="truncate">
+                        <h3 id="ele-title" class="font-bold text-slate-800 truncate text-xs sm:text-sm">Výškový profil</h3>
+                        <div id="ele-stats" class="text-[10px] sm:text-[11px] text-slate-500 flex flex-wrap items-center gap-2 sm:gap-3 mt-0.5"></div>
+                    </div>
+                </div>
+                <button onclick="window.hideElevationProfile()" class="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors shrink-0" title="Zavřít profil">
+                    <i class="fa-solid fa-xmark text-sm"></i>
+                </button>
+            </div>
+            <div class="h-28 sm:h-36 w-full relative">
+                <canvas id="elevationChart"></canvas>
+            </div>
         </div>
     </main>
 
@@ -201,20 +239,17 @@
         try {
             app = initializeApp(firebaseConfig);
             auth = getAuth(app);
-            try {
-                db = initializeFirestore(app, { experimentalForceLongPolling: true });
-            } catch(e) {
-                db = getFirestore(app);
-            }
-        } catch (e) {
-            console.warn("Firebase init warning:", e);
-        }
+            try { db = initializeFirestore(app, { experimentalForceLongPolling: true }); } 
+            catch(e) { db = getFirestore(app); }
+        } catch (e) { console.warn("Firebase init warning:", e); }
 
         window.map = null;
         window.archivedTrips = []; 
         window.polylinesLayer = L.layerGroup();
         window.selectedTripId = null;
         window.selectedMapIndex = null;
+        window.elevationChartInstance = null;
+        window.hoverMarker = null;
 
         function formatCzechDate(dateString) {
             if (!dateString) return '';
@@ -223,7 +258,14 @@
             return d.toLocaleDateString('cs-CZ');
         }
 
-        // Robust GPX/XML Parser supporting trkpt, wpt, rtept, and KML coordinates
+        function calculateDistanceKm(lat1, lon1, lat2, lon2) {
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
         function parseGpxXml(xmlString) {
             if (!xmlString || typeof xmlString !== 'string') return [];
             try {
@@ -235,8 +277,16 @@
                 allPts.forEach(pt => {
                     const lat = parseFloat(pt.getAttribute("lat") || pt.getAttribute("LAT"));
                     const lon = parseFloat(pt.getAttribute("lon") || pt.getAttribute("lng") || pt.getAttribute("LON") || pt.getAttribute("LNG"));
+                    
+                    let ele = null;
+                    const eleNodes = ['ele', 'ELE', 'elevation', 'ELEVATION'];
+                    for (const eleTag of eleNodes) {
+                        const eleEl = pt.getElementsByTagName(eleTag)[0];
+                        if (eleEl) { ele = parseFloat(eleEl.textContent); break; }
+                    }
+
                     if (!isNaN(lat) && !isNaN(lon)) {
-                        coords.push([lat, lon]);
+                        coords.push(ele !== null && !isNaN(ele) ? [lat, lon, ele] : [lat, lon]);
                     }
                 });
 
@@ -250,135 +300,88 @@
                             if (c.length >= 2) {
                                 const lon = parseFloat(c[0]);
                                 const lat = parseFloat(c[1]);
-                                if (!isNaN(lat) && !isNaN(lon)) coords.push([lat, lon]);
+                                const ele = c.length >= 3 ? parseFloat(c[2]) : null;
+                                if (!isNaN(lat) && !isNaN(lon)) {
+                                    coords.push(ele !== null && !isNaN(ele) ? [lat, lon, ele] : [lat, lon]);
+                                }
                             }
                         });
                     });
                 }
                 return coords;
             } catch(e) {
-                console.warn("GPX XML parse error:", e);
                 return [];
             }
         }
 
-        // Normalizes raw point formats into standard Leaflet [lat, lon] tuples
         function normalizeCoords(arr) {
             if (!Array.isArray(arr)) return [];
             return arr.map(pt => {
                 if (Array.isArray(pt) && pt.length >= 2) {
                     const lat = parseFloat(pt[0]);
                     const lon = parseFloat(pt[1]);
-                    return (!isNaN(lat) && !isNaN(lon)) ? [lat, lon] : null;
+                    const ele = pt[2] !== undefined ? parseFloat(pt[2]) : null;
+                    return (!isNaN(lat) && !isNaN(lon)) ? (ele !== null && !isNaN(ele) ? [lat, lon, ele] : [lat, lon]) : null;
                 } else if (pt && typeof pt === 'object') {
                     const lat = parseFloat(pt.lat !== undefined ? pt.lat : pt.latitude);
                     const lon = parseFloat(pt.lon !== undefined ? pt.lon : (pt.lng !== undefined ? pt.lng : pt.longitude));
-                    return (!isNaN(lat) && !isNaN(lon)) ? [lat, lon] : null;
+                    const ele = parseFloat(pt.ele !== undefined ? pt.ele : (pt.elevation !== undefined ? pt.elevation : pt.alt));
+                    return (!isNaN(lat) && !isNaN(lon)) ? (!isNaN(ele) ? [lat, lon, ele] : [lat, lon]) : null;
                 }
                 return null;
             }).filter(pt => pt !== null);
         }
 
-        // Asynchronously resolves GPX content from URLs, CORS Proxy, Data URIs, Base64 strings, or Coordinate Arrays
         async function resolveGpxVal(val) {
             if (!val) return [];
-
-            if (Array.isArray(val)) {
-                return normalizeCoords(val);
-            }
-
+            if (Array.isArray(val)) return normalizeCoords(val);
             if (typeof val === 'object') {
                 const inner = val.coordinates || val.coords || val.points || val.latlngs || val.gpx || val.data || val.file;
-                if (inner && inner !== val) {
-                    return await resolveGpxVal(inner);
-                }
+                if (inner && inner !== val) return await resolveGpxVal(inner);
                 return [];
             }
-
             if (typeof val === 'string') {
                 const trimmed = val.trim();
                 if (!trimmed) return [];
-
-                // 1. Direct XML content
                 if (trimmed.includes('<gpx') || trimmed.includes('<trk') || trimmed.includes('<?xml') || trimmed.includes('<kml')) {
                     return parseGpxXml(trimmed);
                 }
-
-                // 2. Embedded JSON string
                 if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
-                    try {
-                        const parsed = JSON.parse(trimmed);
-                        return await resolveGpxVal(parsed);
-                    } catch(e) {}
+                    try { return await resolveGpxVal(JSON.parse(trimmed)); } catch(e) {}
                 }
-
-                // 3. Data URI (Base64 or URL Encoded)
                 if (trimmed.startsWith('data:')) {
                     const commaIdx = trimmed.indexOf(',');
                     if (commaIdx !== -1) {
                         const meta = trimmed.substring(0, commaIdx);
                         const content = trimmed.substring(commaIdx + 1);
-                        if (meta.includes('base64')) {
-                            try {
-                                const decoded = atob(content);
-                                return parseGpxXml(decoded);
-                            } catch(e) {}
-                        } else {
-                            try {
-                                const decoded = decodeURIComponent(content);
-                                return parseGpxXml(decoded);
-                            } catch(e) {}
-                        }
+                        if (meta.includes('base64')) { try { return parseGpxXml(atob(content)); } catch(e) {} } 
+                        else { try { return parseGpxXml(decodeURIComponent(content)); } catch(e) {} }
                     }
                     return [];
                 }
-
-                // 4. Raw Base64 string without data: header
                 try {
                     const decoded = atob(trimmed.replace(/\s/g, ''));
-                    if (decoded.includes('<gpx') || decoded.includes('<trk') || decoded.includes('<?xml') || decoded.includes('<kml')) {
-                        return parseGpxXml(decoded);
-                    }
+                    if (decoded.includes('<gpx') || decoded.includes('<trk') || decoded.includes('<?xml') || decoded.includes('<kml')) return parseGpxXml(decoded);
                 } catch(e) {}
-
-                // 5. HTTP / HTTPS URL (Direct + CORS Proxy fallback for Firebase Storage)
+                
                 if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-                    if (trimmed.includes('mapy.cz') || trimmed.includes('mapy.com')) {
-                        if (!trimmed.includes('export') && !trimmed.includes('.gpx')) {
-                            return [];
-                        }
-                    }
                     try {
                         let res = await fetch(trimmed);
-                        if (!res.ok) {
-                            res = await fetch('https://corsproxy.io/?' + encodeURIComponent(trimmed));
-                        }
-                        if (res.ok) {
-                            const text = await res.text();
-                            return parseGpxXml(text);
-                        }
+                        if (!res.ok) res = await fetch('https://corsproxy.io/?' + encodeURIComponent(trimmed));
+                        if (res.ok) return parseGpxXml(await res.text());
                     } catch(e) {
-                        console.warn("Direct fetch error, attempting CORS proxy for:", trimmed, e);
                         try {
                             const proxyRes = await fetch('https://corsproxy.io/?' + encodeURIComponent(trimmed));
-                            if (proxyRes.ok) {
-                                const text = await proxyRes.text();
-                                return parseGpxXml(text);
-                            }
-                        } catch(proxyErr) {
-                            console.warn("CORS proxy fetch failed:", proxyErr);
-                        }
+                            if (proxyRes.ok) return parseGpxXml(await proxyRes.text());
+                        } catch(proxyErr) {}
                     }
-                    return [];
                 }
             }
             return [];
         }
 
-        // Exhaustively extracts map links and GPX data from Firestore document fields
         async function extractMapsFromDocDataAsync(data, tripId, gpxDataMap) {
             let maps = [];
-
             async function processMapItem(m) {
                 if (!m) return null;
                 if (typeof m === 'string') {
@@ -392,13 +395,10 @@
                         visible: true
                     };
                 }
-                
-                const rawGpxVal = m.gpx || m.gpxUrl || m.gpxData || m.gpxFile || m.file || m.fileData || 
-                                  m.coordinates || m.coords || m.points || m.track || m.path || m.gpxContent || m.xml;
+                const rawGpxVal = m.gpx || m.gpxUrl || m.gpxData || m.gpxFile || m.file || m.fileData || m.coordinates || m.coords || m.points || m.track || m.path || m.gpxContent || m.xml;
                 const coords = await resolveGpxVal(rawGpxVal);
                 const mapLink = m.url || m.mapUrl || m.link || m.map || m.mapa || "";
                 const gpxLink = m.gpxUrl || m.gpxDownload || (typeof m.gpx === 'string' && m.gpx.startsWith('http') ? m.gpx : "");
-
                 return {
                     url: mapLink,
                     gpxUrl: gpxLink,
@@ -407,8 +407,7 @@
                     visible: m.visible !== undefined ? m.visible : true
                 };
             }
-
-            // Check array fields on document root
+            
             const arrayFields = ['maps', 'trasy', 'routes', 'tracks', 'mapy', 'items'];
             for (const field of arrayFields) {
                 if (data[field] && Array.isArray(data[field]) && data[field].length > 0) {
@@ -418,18 +417,12 @@
                     }
                 }
             }
-
-            // Check root level GPX / coordinate properties
+            
             if (maps.length === 0 || maps.every(m => m.coordinates.length === 0)) {
-                const rootGpxVal = data.gpx || data.gpxData || data.gpxUrl || data.gpxFile || data.gpxXml || 
-                                   data.gpxContent || data.file || data.fileData || data.coordinates || 
-                                   data.coords || data.points || data.latlngs || data.track || data.path;
-                
+                const rootGpxVal = data.gpx || data.gpxData || data.gpxUrl || data.gpxFile || data.gpxXml || data.gpxContent || data.file || data.fileData || data.coordinates || data.coords || data.points || data.latlngs || data.track || data.path;
                 const directCoords = await resolveGpxVal(rootGpxVal);
                 const mapLink = data.mapUrl || data.url || data.link || data.map || data.mapa || "";
-                const gpxLink = (typeof data.gpxUrl === 'string' && data.gpxUrl.startsWith('http')) ? data.gpxUrl : 
-                                ((typeof data.gpx === 'string' && data.gpx.startsWith('http')) ? data.gpx : '');
-
+                const gpxLink = (typeof data.gpxUrl === 'string' && data.gpxUrl.startsWith('http')) ? data.gpxUrl : ((typeof data.gpx === 'string' && data.gpx.startsWith('http')) ? data.gpx : '');
                 if (directCoords.length > 0 || mapLink || gpxLink) {
                     maps.push({
                         url: mapLink,
@@ -440,8 +433,7 @@
                     });
                 }
             }
-
-            // Check gpxDataMap fallback collection (`vyslapy_gpx`)
+            
             if ((maps.length === 0 || maps.every(m => m.coordinates.length === 0)) && gpxDataMap && gpxDataMap[tripId]) {
                 const gpxDoc = gpxDataMap[tripId];
                 if (gpxDoc.maps && Array.isArray(gpxDoc.maps)) {
@@ -456,12 +448,10 @@
                     }
                 }
             }
-
-            // Fallback: extract Mapy.cz URLs from note or description text
+            
             if (maps.length === 0) {
                 const noteText = (data.note || "") + " " + (data.description || "") + " " + (data.comment || "") + " " + (data.text || "");
-                const urlRegex = /https?:\/\/(?:www\.|en\.)?mapy\.(?:cz|com)[^\s"'<>\\]+/gi;
-                const urlMatches = noteText.match(urlRegex);
+                const urlMatches = noteText.match(/https?:\/\/(?:www\.|en\.)?mapy\.(?:cz|com)[^\s"'<>\\]+/gi);
                 if (urlMatches) {
                     const cleanUrls = Array.from(new Set(urlMatches.map(u => u.replace(/[.,;)]$/, ''))));
                     cleanUrls.forEach(url => {
@@ -469,9 +459,121 @@
                     });
                 }
             }
-
             return maps;
         }
+
+        window.updateElevationProfile = function(trip, mapIndex = null) {
+            const panel = document.getElementById('elevation-panel');
+            if (!trip) { window.hideElevationProfile(); return; }
+
+            let coords = [];
+            if (mapIndex !== null && trip.maps && trip.maps[mapIndex]) {
+                coords = trip.maps[mapIndex].coordinates || [];
+            } else if (trip.maps) {
+                trip.maps.forEach(m => { if (m.coordinates && m.coordinates.length > 0) coords = coords.concat(m.coordinates); });
+            }
+
+            const ptsWithEle = coords.filter(p => p.length >= 3 && p[2] !== null && !isNaN(p[2]));
+            if (ptsWithEle.length < 2) { window.hideElevationProfile(); return; }
+
+            panel.classList.remove('hidden');
+            document.getElementById('ele-title').innerText = `Výškový profil: ${trip.name}`;
+
+            let totalDist = 0, ascent = 0, descent = 0, maxEle = ptsWithEle[0][2], minEle = ptsWithEle[0][2];
+            const chartLabels = [], chartData = [], pointCoordinates = [];
+
+            for (let i = 0; i < ptsWithEle.length; i++) {
+                const curr = ptsWithEle[i];
+                if (i > 0) {
+                    const prev = ptsWithEle[i - 1];
+                    totalDist += calculateDistanceKm(prev[0], prev[1], curr[0], curr[1]);
+                    const diff = curr[2] - prev[2];
+                    if (diff > 0) ascent += diff; else descent += Math.abs(diff);
+                }
+                if (curr[2] > maxEle) maxEle = curr[2];
+                if (curr[2] < minEle) minEle = curr[2];
+                chartLabels.push(totalDist.toFixed(2));
+                chartData.push(Math.round(curr[2]));
+                pointCoordinates.push([curr[0], curr[1]]);
+            }
+
+            document.getElementById('ele-stats').innerHTML = `
+                <span><i class="fa-solid fa-arrow-up text-emerald-600"></i> +${Math.round(ascent)} m</span>
+                <span><i class="fa-solid fa-arrow-down text-rose-500"></i> -${Math.round(descent)} m</span>
+                <span><i class="fa-solid fa-mountain text-teal-600"></i> Max: ${Math.round(maxEle)} m</span>
+                <span><i class="fa-solid fa-layer-group text-slate-400"></i> Min: ${Math.round(minEle)} m</span>
+            `;
+
+            const ctx = document.getElementById('elevationChart').getContext('2d');
+            if (window.elevationChartInstance) window.elevationChartInstance.destroy();
+
+            const gradient = ctx.createLinearGradient(0, 0, 0, 120);
+            gradient.addColorStop(0, 'rgba(16, 185, 129, 0.4)');
+            gradient.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+
+            window.elevationChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: chartLabels,
+                    datasets: [{
+                        label: 'Nadmořská výška (m)',
+                        data: chartData,
+                        borderColor: '#10b981',
+                        borderWidth: 2,
+                        backgroundColor: gradient,
+                        fill: true,
+                        tension: 0.2,
+                        pointRadius: 0,
+                        pointHoverRadius: 6,
+                        pointHoverBackgroundColor: '#e11d48',
+                        pointHoverBorderColor: '#ffffff',
+                        pointHoverBorderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { intersect: false, mode: 'index' },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: (items) => `Vzdálenost: ${items[0].label} km`,
+                                label: (item) => ` Výška: ${item.formattedValue} m n. m.`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { maxTicksLimit: 8, font: { size: 10 } } },
+                        y: { grid: { color: 'rgba(226, 232, 240, 0.6)' }, ticks: { font: { size: 10 } } }
+                    },
+                    onHover: (event, activeElements) => {
+                        if (activeElements && activeElements.length > 0) {
+                            const index = activeElements[0].index;
+                            const coord = pointCoordinates[index];
+                            if (coord) {
+                                if (!window.hoverMarker) {
+                                    window.hoverMarker = L.circleMarker(coord, {
+                                        radius: 7, fillColor: '#e11d48', color: '#ffffff', weight: 2, opacity: 1, fillOpacity: 1, pane: 'selectedTripPane'
+                                    }).addTo(window.map);
+                                } else {
+                                    window.hoverMarker.setLatLng(coord);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        };
+
+        window.hideElevationProfile = function() {
+            const panel = document.getElementById('elevation-panel');
+            if (panel) panel.classList.add('hidden');
+            if (window.hoverMarker && window.map) {
+                window.map.removeLayer(window.hoverMarker);
+                window.hoverMarker = null;
+            }
+        };
 
         window.onload = function() {
             window.initMap();
@@ -485,15 +587,12 @@
                 zoomControl: false
             });
 
-            // Dedicated pane for active route rendering (z-index 650) to ensure selected route stays on top
             window.map.createPane('selectedTripPane');
             window.map.getPane('selectedTripPane').style.zIndex = 650;
-
             L.control.zoom({ position: 'bottomright' }).addTo(window.map);
 
             const mapyOutdoor = L.tileLayer(`https://api.mapy.cz/v1/maptiles/outdoor/256/{z}/{x}/{y}?apikey=${apiKey}`, {
-                minZoom: 2,
-                maxZoom: 19,
+                minZoom: 2, maxZoom: 19,
                 attribution: '&copy; <a href="https://www.seznam.cz">Seznam.cz a.s.</a>, Mapy.cz'
             });
             const openTopo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
@@ -518,34 +617,21 @@
             
             try {
                 let querySnapshot = null;
-
-                if (auth) {
-                    try { await signInAnonymously(auth); } catch (e) {}
-                }
-
+                if (auth) { try { await signInAnonymously(auth); } catch (e) {} }
                 if (db) {
                     try {
                         querySnapshot = await getDocs(collection(db, 'vyslapy'));
-                        try {
-                            window.gpxSnapshot = await getDocs(collection(db, 'vyslapy_gpx'));
-                        } catch(e) { console.warn("Nenalezeny starší GPX zálohy"); }
-                    } catch (fetchErr) {
-                        console.warn("Firestore direct read error:", fetchErr);
-                    }
+                        try { window.gpxSnapshot = await getDocs(collection(db, 'vyslapy_gpx')); } catch(e) {}
+                    } catch (fetchErr) { console.warn("Firestore direct read error:", fetchErr); }
                 }
 
-                if (!querySnapshot || querySnapshot.empty) {
-                    throw new Error("Žádná data nebyla vrácena z databáze.");
-                }
+                if (!querySnapshot || querySnapshot.empty) throw new Error("Žádná data nebyla vrácena z databáze.");
 
                 const gpxDataMap = {};
-                if (window.gpxSnapshot) {
-                    window.gpxSnapshot.forEach(d => { gpxDataMap[d.id] = d.data(); });
-                }
+                if (window.gpxSnapshot) window.gpxSnapshot.forEach(d => { gpxDataMap[d.id] = d.data(); });
 
                 let addedCount = 0;
                 let updatedCount = 0;
-
                 const docSnaps = [];
                 querySnapshot.forEach(docSnap => docSnaps.push(docSnap));
 
@@ -567,19 +653,12 @@
                         window.archivedTrips[existingIndex].date = formattedDate;
                         window.archivedTrips[existingIndex].rawDate = rawDate;
                         window.archivedTrips[existingIndex].participants = participants;
-                        if (updatedMaps.length > 0) {
-                            window.archivedTrips[existingIndex].maps = updatedMaps;
-                        }
+                        if (updatedMaps.length > 0) window.archivedTrips[existingIndex].maps = updatedMaps;
                         updatedCount++;
                     } else {
                         window.archivedTrips.push({
-                            id: tripId,
-                            name: tripName,
-                            date: formattedDate,
-                            rawDate: rawDate,
-                            distance: formattedDist,
-                            participants: participants,
-                            maps: updatedMaps
+                            id: tripId, name: tripName, date: formattedDate, rawDate: rawDate,
+                            distance: formattedDist, participants: participants, maps: updatedMaps
                         });
                         addedCount++;
                     }
@@ -589,16 +668,12 @@
                 window.updateFilterDropdowns();
                 window.renderSidebar();
                 window.renderMap();
-                
                 window.showToast(`Načteno: ${addedCount} nových | Aktualizováno: ${updatedCount}`, 'success');
 
             } catch (err) {
                 console.warn("Firebase fetch notice:", err);
-                if (window.archivedTrips.length > 0) {
-                    window.showToast('Byla načtena uložená lokální data z paměti.', 'success');
-                } else {
-                    window.showToast('Připojení selhalo. Použijte zálohu JSON.', 'warning');
-                }
+                if (window.archivedTrips.length > 0) window.showToast('Byla načtena uložená lokální data z paměti.', 'success');
+                else window.showToast('Připojení selhalo. Použijte zálohu JSON.', 'warning');
             } finally {
                 btn.innerHTML = originalBtnHtml;
             }
@@ -623,17 +698,9 @@
                             rawDate: nowIso,
                             distance: "0 km",
                             participants: "",
-                            maps: [{
-                                url: "",
-                                gpxUrl: "",
-                                hasGpx: true,
-                                coordinates: coords,
-                                visible: true
-                            }]
+                            maps: [{ url: "", gpxUrl: "", hasGpx: true, coordinates: coords, visible: true }]
                         };
-
                         window.archivedTrips.push(newTrip);
-
                         window.saveToStorage();
                         window.updateFilterDropdowns();
                         window.renderMap();
@@ -650,11 +717,9 @@
             if (window.selectedTripId === id) window.resetSelection();
             window.archivedTrips = window.archivedTrips.filter(t => t.id !== id);
             window.saveToStorage();
-            
             if (db && id.startsWith('gpx_')) {
                 try { await deleteDoc(doc(db, 'vyslapy_gpx', id)); } catch(e){}
             }
-
             window.updateFilterDropdowns();
             window.renderMap();
             window.renderSidebar();
@@ -663,7 +728,6 @@
         window.focusAndToggleTrip = function(tripId, mapIndex = null) {
             const trip = window.archivedTrips.find(t => t.id === tripId);
             if (!trip) return;
-            
             window.selectedTripId = tripId;
             window.selectedMapIndex = mapIndex;
             document.getElementById('btn-reset-selection').classList.remove('hidden');
@@ -671,34 +735,28 @@
             let allCoords = [];
             if (mapIndex !== null && trip.maps[mapIndex]) {
                 trip.maps[mapIndex].visible = true;
-                if (trip.maps[mapIndex].coordinates.length > 0) {
-                    allCoords = trip.maps[mapIndex].coordinates;
-                }
+                if (trip.maps[mapIndex].coordinates.length > 0) allCoords = trip.maps[mapIndex].coordinates;
             } else if (trip.maps) {
                 trip.maps.forEach(m => {
                     m.visible = true;
-                    if (m.coordinates && m.coordinates.length > 0) {
-                        allCoords = allCoords.concat(m.coordinates);
-                    }
+                    if (m.coordinates && m.coordinates.length > 0) allCoords = allCoords.concat(m.coordinates);
                 });
             }
 
             window.saveToStorage();
             window.renderMap();
             window.renderSidebar();
-
-            if (allCoords.length > 0) {
-                const bounds = L.latLngBounds(allCoords);
-                window.map.fitBounds(bounds, { padding: [50, 50] });
-            } else {
-                window.showToast('Vybraná trasa nemá dostupné souřadnice v GPX', 'warning');
-            }
+            window.updateElevationProfile(trip, mapIndex);
+            
+            if (allCoords.length > 0) window.map.fitBounds(L.latLngBounds(allCoords), { padding: [50, 50] });
+            else window.showToast('Vybraná trasa nemá dostupné souřadnice v GPX', 'warning');
         };
 
         window.resetSelection = function() {
             window.selectedTripId = null;
             window.selectedMapIndex = null;
             document.getElementById('btn-reset-selection').classList.add('hidden');
+            window.hideElevationProfile();
             window.renderMap();
             window.renderSidebar();
         };
@@ -706,27 +764,12 @@
         window.toggleAllMaps = function() {
             let anyVisible = false;
             window.archivedTrips.forEach(trip => {
-                if (trip.maps) {
-                    trip.maps.forEach(m => {
-                        if (m.visible && m.coordinates && m.coordinates.length > 0) {
-                            anyVisible = true;
-                        }
-                    });
-                }
+                if (trip.maps) trip.maps.forEach(m => { if (m.visible && m.coordinates && m.coordinates.length > 0) anyVisible = true; });
             });
-
             const newState = !anyVisible;
-
             window.archivedTrips.forEach(trip => {
-                if (trip.maps) {
-                    trip.maps.forEach(m => {
-                        if (m.coordinates && m.coordinates.length > 0) {
-                            m.visible = newState;
-                        }
-                    });
-                }
+                if (trip.maps) trip.maps.forEach(m => { if (m.coordinates && m.coordinates.length > 0) m.visible = newState; });
             });
-
             window.saveToStorage();
             window.renderMap();
             window.renderSidebar();
@@ -736,25 +779,12 @@
             const btnText = document.getElementById('text-toggle-all');
             const btnIcon = document.getElementById('icon-toggle-all');
             if (!btnText || !btnIcon) return;
-
             let anyVisible = false;
             window.archivedTrips.forEach(trip => {
-                if (trip.maps) {
-                    trip.maps.forEach(m => {
-                        if (m.visible && m.coordinates && m.coordinates.length > 0) {
-                            anyVisible = true;
-                        }
-                    });
-                }
+                if (trip.maps) trip.maps.forEach(m => { if (m.visible && m.coordinates && m.coordinates.length > 0) anyVisible = true; });
             });
-
-            if (anyVisible) {
-                btnText.innerText = "Skrýt vše";
-                btnIcon.className = "fa-solid fa-eye-slash";
-            } else {
-                btnText.innerText = "Zobrazit vše";
-                btnIcon.className = "fa-solid fa-eye";
-            }
+            if (anyVisible) { btnText.innerText = "Skrýt vše"; btnIcon.className = "fa-solid fa-eye-slash"; } 
+            else { btnText.innerText = "Zobrazit vše"; btnIcon.className = "fa-solid fa-eye"; }
         };
 
         window.renderMap = function() {
@@ -775,16 +805,9 @@
                     const p = trip.date.split('.');
                     if (p.length === 3) d = new Date(`${p[2].trim()}-${p[1].trim()}-${p[0].trim()}`);
                 }
-
-                if (filterYear !== 'all') {
-                    if (!d || isNaN(d) || d.getFullYear().toString() !== filterYear) return;
-                }
-                if (filterMonth !== 'all') {
-                    if (!d || isNaN(d) || (d.getMonth() + 1).toString() !== filterMonth) return;
-                }
-                if (filterParticipant !== 'all') {
-                    if (!trip.participants || !trip.participants.toLowerCase().includes(filterParticipant.toLowerCase())) return;
-                }
+                if (filterYear !== 'all') { if (!d || isNaN(d) || d.getFullYear().toString() !== filterYear) return; }
+                if (filterMonth !== 'all') { if (!d || isNaN(d) || (d.getMonth() + 1).toString() !== filterMonth) return; }
+                if (filterParticipant !== 'all') { if (!trip.participants || !trip.participants.toLowerCase().includes(filterParticipant.toLowerCase())) return; }
 
                 if (!trip.maps) return;
 
@@ -792,7 +815,6 @@
                     if (mapObj.visible && mapObj.coordinates && mapObj.coordinates.length > 0) {
                         hasVisibleRoutes = true;
                         const isSelected = (trip.id === window.selectedTripId && (window.selectedMapIndex === null || window.selectedMapIndex === mIdx));
-                        
                         const lineColor = isSelected ? '#e11d48' : '#00f5d4';
                         const shadowColor = isSelected ? '#881337' : '#042f2e';
                         const weight = isSelected ? 8 : 6;
@@ -808,20 +830,14 @@
                         });
                         
                         mainLine.bindPopup(`<b>${trip.name} (Část ${mIdx + 1})</b>${trip.distance ? '<br>Vzdálenost: ' + trip.distance : ''}`);
-                        
                         mainLine.on('click', function() {
                             window.focusAndToggleTrip(trip.id, mIdx);
                             const cardEl = document.getElementById(`trip-card-${trip.id}`);
-                            if (cardEl) {
-                                cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            }
+                            if (cardEl) cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
                         });
 
-                        if (isSelected) {
-                            selectedLines.push(shadowLine, mainLine);
-                        } else {
-                            unselectedLines.push(shadowLine, mainLine);
-                        }
+                        if (isSelected) selectedLines.push(shadowLine, mainLine);
+                        else unselectedLines.push(shadowLine, mainLine);
                         
                         mapObj.coordinates.forEach(coord => bounds.extend(coord));
                     }
@@ -838,14 +854,9 @@
                 const selTrip = window.archivedTrips.find(t => t.id === window.selectedTripId);
                 if (selTrip) {
                     let selCoords = [];
-                    if (window.selectedMapIndex !== null && selTrip.maps[window.selectedMapIndex]) {
-                        selCoords = selTrip.maps[window.selectedMapIndex].coordinates;
-                    } else if (selTrip.maps) {
-                        selTrip.maps.forEach(m => { selCoords = selCoords.concat(m.coordinates); });
-                    }
-                    if (selCoords.length > 0) {
-                        window.map.fitBounds(L.latLngBounds(selCoords), { padding: [50, 50] });
-                    }
+                    if (window.selectedMapIndex !== null && selTrip.maps[window.selectedMapIndex]) selCoords = selTrip.maps[window.selectedMapIndex].coordinates;
+                    else if (selTrip.maps) selTrip.maps.forEach(m => { selCoords = selCoords.concat(m.coordinates); });
+                    if (selCoords.length > 0) window.map.fitBounds(L.latLngBounds(selCoords), { padding: [50, 50] });
                 }
             }
         };
@@ -853,10 +864,8 @@
         window.updateFilterDropdowns = function() {
             const yearSelect = document.getElementById('filter-year');
             const partSelect = document.getElementById('filter-participant');
-            
             const currentYear = yearSelect.value;
             const currentPart = partSelect.value;
-
             const years = new Set();
             const participants = new Set();
 
@@ -868,7 +877,6 @@
                     const parts = t.date.split('.');
                     if (parts.length === 3) years.add(parts[2].trim());
                 }
-
                 if (t.participants) {
                     t.participants.split(',').forEach(p => {
                         const clean = p.trim();
@@ -881,22 +889,17 @@
             Array.from(years).sort((a,b) => b - a).forEach(y => {
                 yearSelect.innerHTML += `<option value="${y}">${y}</option>`;
             });
-            if (Array.from(years).includes(parseInt(currentYear)) || currentYear === 'all') {
-                yearSelect.value = currentYear;
-            }
+            if (Array.from(years).includes(parseInt(currentYear)) || currentYear === 'all') yearSelect.value = currentYear;
 
             partSelect.innerHTML = '<option value="all">Všichni</option>';
             Array.from(participants).sort().forEach(p => {
                 partSelect.innerHTML += `<option value="${p}">${p}</option>`;
             });
-            if (Array.from(participants).includes(currentPart) || currentPart === 'all') {
-                partSelect.value = currentPart;
-            }
+            if (Array.from(participants).includes(currentPart) || currentPart === 'all') partSelect.value = currentPart;
         };
 
         window.renderSidebar = function() {
             const container = document.getElementById('trips-container');
-
             const filterYear = document.getElementById('filter-year').value;
             const filterMonth = document.getElementById('filter-month').value;
             const filterParticipant = document.getElementById('filter-participant').value;
@@ -907,16 +910,9 @@
                     const p = trip.date.split('.');
                     if (p.length === 3) d = new Date(`${p[2].trim()}-${p[1].trim()}-${p[0].trim()}`);
                 }
-
-                if (filterYear !== 'all') {
-                    if (!d || isNaN(d) || d.getFullYear().toString() !== filterYear) return false;
-                }
-                if (filterMonth !== 'all') {
-                    if (!d || isNaN(d) || (d.getMonth() + 1).toString() !== filterMonth) return false;
-                }
-                if (filterParticipant !== 'all') {
-                    if (!trip.participants || !trip.participants.toLowerCase().includes(filterParticipant.toLowerCase())) return false;
-                }
+                if (filterYear !== 'all') { if (!d || isNaN(d) || d.getFullYear().toString() !== filterYear) return false; }
+                if (filterMonth !== 'all') { if (!d || isNaN(d) || (d.getMonth() + 1).toString() !== filterMonth) return false; }
+                if (filterParticipant !== 'all') { if (!trip.participants || !trip.participants.toLowerCase().includes(filterParticipant.toLowerCase())) return false; }
                 return true;
             });
 
@@ -933,6 +929,44 @@
             }, 0);
             document.getElementById('stat-distance').innerText = totalKm.toFixed(1).replace('.0', '') + " km";
 
+            let totalAscent = 0;
+            let totalDescent = 0;
+            let globalMaxEle = -Infinity;
+            let maxEleTripName = "";
+
+            sortedTrips.forEach(trip => {
+                if (!trip.maps) return;
+                trip.maps.forEach(m => {
+                    if (!m.coordinates) return;
+                    let prevEle = null;
+                    m.coordinates.forEach(pt => {
+                        if (pt.length >= 3 && pt[2] !== null && !isNaN(pt[2])) {
+                            const ele = pt[2];
+                            if (ele > globalMaxEle) {
+                                globalMaxEle = ele;
+                                maxEleTripName = trip.name;
+                            }
+                            if (prevEle !== null) {
+                                const diff = ele - prevEle;
+                                if (diff > 0) totalAscent += diff;
+                                else totalDescent += Math.abs(diff);
+                            }
+                            prevEle = ele;
+                        }
+                    });
+                });
+            });
+
+            document.getElementById('stat-ascent').innerText = Math.round(totalAscent).toLocaleString('cs-CZ');
+            document.getElementById('stat-descent').innerText = Math.round(totalDescent).toLocaleString('cs-CZ');
+            document.getElementById('stat-max-ele').innerText = globalMaxEle !== -Infinity ? Math.round(globalMaxEle).toLocaleString('cs-CZ') : '-';
+            
+            const maxTripEl = document.getElementById('stat-max-trip');
+            if (maxTripEl) {
+                maxTripEl.innerText = globalMaxEle !== -Infinity ? `(${maxEleTripName})` : '';
+                maxTripEl.title = maxEleTripName;
+            }
+
             window.updateToggleAllButtonState();
 
             if (sortedTrips.length === 0) {
@@ -942,49 +976,19 @@
 
             container.innerHTML = sortedTrips.map(trip => {
                 const isSelected = (trip.id === window.selectedTripId);
-                
                 const mapsHtml = (trip.maps || []).map((mapObj, mIdx) => {
                     const hasGeom = mapObj.coordinates && mapObj.coordinates.length > 0;
-                    
                     return `
                     <div class="flex items-center justify-between py-1.5 px-2 bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-200/60 text-xs transition-colors">
                         <div class="flex items-center space-x-2 overflow-hidden flex-1">
-                            ${hasGeom ? `
-                                <button onclick="window.toggleMapVisibility('${trip.id}', ${mIdx})" class="w-5 h-5 rounded-md flex items-center justify-center ${mapObj.visible ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-500'} shrink-0 transition-colors" title="Zobrazit/skrýt tuto část na mapě">
-                                    <i class="fa-solid fa-eye text-[10px]"></i>
-                                </button>
-                            ` : `
-                                <span class="w-5 h-5 rounded-md flex items-center justify-center bg-slate-100 text-slate-400 shrink-0" title="Chybí GPX trasa">
-                                    <i class="fa-solid fa-minus text-[10px]"></i>
-                                </span>
-                            `}
-                            <span onclick="window.focusAndToggleTrip('${trip.id}', ${mIdx})" class="font-medium text-slate-700 hover:text-emerald-600 cursor-pointer truncate text-[11px]" title="Kliknutím zvýrazníte tuto část trasy">
-                                Část ${mIdx + 1}
-                            </span>
+                            ${hasGeom ? `<button onclick="window.toggleMapVisibility('${trip.id}', ${mIdx})" class="w-5 h-5 rounded-md flex items-center justify-center ${mapObj.visible ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-500'} shrink-0 transition-colors" title="Zobrazit/skrýt tuto část na mapě"><i class="fa-solid fa-eye text-[10px]"></i></button>` : `<span class="w-5 h-5 rounded-md flex items-center justify-center bg-slate-100 text-slate-400 shrink-0" title="Chybí GPX trasa"><i class="fa-solid fa-minus text-[10px]"></i></span>`}
+                            <span onclick="window.focusAndToggleTrip('${trip.id}', ${mIdx})" class="font-medium text-slate-700 hover:text-emerald-600 cursor-pointer truncate text-[11px]" title="Kliknutím zvýrazníte tuto část trasy">Část ${mIdx + 1}</span>
                         </div>
                         <div class="flex items-center space-x-1.5 shrink-0">
-                            ${mapObj.url ? `
-                                <a href="${mapObj.url}" target="_blank" class="text-[10px] text-emerald-700 hover:text-emerald-800 font-semibold px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-md transition-colors flex items-center space-x-1" title="Otevřít na Mapy.cz">
-                                    <i class="fa-solid fa-location-dot text-[9px]"></i>
-                                    <span>Mapa</span>
-                                </a>
-                            ` : ''}
-                            ${(mapObj.gpxUrl || mapObj.hasGpx) ? `
-                                ${mapObj.gpxUrl ? `
-                                    <a href="${mapObj.gpxUrl}" download target="_blank" class="text-[10px] text-sky-700 hover:text-sky-800 font-semibold px-2 py-0.5 bg-sky-50 hover:bg-sky-100 border border-sky-200/80 rounded-md transition-colors flex items-center space-x-1" title="Stáhnout GPX">
-                                        <i class="fa-solid fa-download text-[9px]"></i>
-                                        <span>GPX</span>
-                                    </a>
-                                ` : `
-                                    <span class="text-[10px] text-sky-700 font-semibold px-2 py-0.5 bg-sky-50 border border-sky-200/80 rounded-md flex items-center space-x-1" title="GPX trasa je vykreslena v mapě">
-                                        <i class="fa-solid fa-route text-[9px]"></i>
-                                        <span>GPX</span>
-                                    </span>
-                                `}
-                            ` : ''}
+                            ${mapObj.url ? `<a href="${mapObj.url}" target="_blank" class="text-[10px] text-emerald-700 hover:text-emerald-800 font-semibold px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-md transition-colors flex items-center space-x-1" title="Otevřít na Mapy.cz"><i class="fa-solid fa-location-dot text-[9px]"></i><span>Mapa</span></a>` : ''}
+                            ${(mapObj.gpxUrl || mapObj.hasGpx) ? `${mapObj.gpxUrl ? `<a href="${mapObj.gpxUrl}" download target="_blank" class="text-[10px] text-sky-700 hover:text-sky-800 font-semibold px-2 py-0.5 bg-sky-50 hover:bg-sky-100 border border-sky-200/80 rounded-md transition-colors flex items-center space-x-1" title="Stáhnout GPX"><i class="fa-solid fa-download text-[9px]"></i><span>GPX</span></a>` : `<span class="text-[10px] text-sky-700 font-semibold px-2 py-0.5 bg-sky-50 border border-sky-200/80 rounded-md flex items-center space-x-1" title="GPX trasa je vykreslena v mapě"><i class="fa-solid fa-route text-[9px]"></i><span>GPX</span></span>`}` : ''}
                         </div>
-                    </div>
-                    `;
+                    </div>`;
                 }).join('');
 
                 return `
@@ -998,19 +1002,11 @@
                             </div>
                             ${trip.participants ? `<div class="text-[11px] text-slate-600 mt-1"><i class="fa-solid fa-user-group mr-1 text-teal-600"></i> ${trip.participants}</div>` : ''}
                         </div>
-                        <button onclick="window.removeTrip('${trip.id}')" class="text-slate-400 hover:text-rose-600 p-1.5 transition-colors shrink-0" title="Odebrat z archívu">
-                            <i class="fa-solid fa-trash-can text-xs"></i>
-                        </button>
+                        <button onclick="window.removeTrip('${trip.id}')" class="text-slate-400 hover:text-rose-600 p-1.5 transition-colors shrink-0" title="Odebrat z archívu"><i class="fa-solid fa-trash-can text-xs"></i></button>
                     </div>
-
-                    ${(trip.maps && trip.maps.length > 0) ? `
-                    <div class="space-y-1.5 pt-1.5 border-t border-slate-100">
-                        <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Trasa a GPX data (${trip.maps.length})</div>
-                        ${mapsHtml}
-                    </div>
-                    ` : ''}
-                </div>
-            `}).join('');
+                    ${(trip.maps && trip.maps.length > 0) ? `<div class="space-y-1.5 pt-1.5 border-t border-slate-100"><div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Trasa a GPX data (${trip.maps.length})</div>${mapsHtml}</div>` : ''}
+                </div>`;
+            }).join('');
         };
 
         window.toggleMapVisibility = function(tripId, mapIndex) {
