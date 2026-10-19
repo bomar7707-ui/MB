@@ -218,6 +218,130 @@
             return d.toLocaleDateString('cs-CZ');
         }
 
+        // Universal helper to parse XML GPX text into coordinate arrays
+        function parseGpxXml(xmlString) {
+            if (!xmlString || typeof xmlString !== 'string') return [];
+            try {
+                const xmlDoc = new DOMParser().parseFromString(xmlString, "text/xml");
+                const trkpts = xmlDoc.getElementsByTagName("trkpt");
+                const coords = [];
+                for (let i = 0; i < trkpts.length; i++) {
+                    const lat = parseFloat(trkpts[i].getAttribute("lat"));
+                    const lon = parseFloat(trkpts[i].getAttribute("lon"));
+                    if (!isNaN(lat) && !isNaN(lon)) {
+                        coords.push([lat, lon]);
+                    }
+                }
+                if (coords.length === 0) {
+                    const pts = xmlDoc.querySelectorAll("wpt, rtept");
+                    pts.forEach(pt => {
+                        const lat = parseFloat(pt.getAttribute("lat"));
+                        const lon = parseFloat(pt.getAttribute("lon"));
+                        if (!isNaN(lat) && !isNaN(lon)) coords.push([lat, lon]);
+                    });
+                }
+                return coords;
+            } catch(e) {
+                console.warn("GPX XML parse error:", e);
+                return [];
+            }
+        }
+
+        // Helper to normalize any object/array format into standard Leaflet [lat, lon] tuples
+        function normalizeCoords(arr) {
+            if (!Array.isArray(arr)) return [];
+            return arr.map(pt => {
+                if (Array.isArray(pt) && pt.length >= 2) {
+                    const lat = parseFloat(pt[0]);
+                    const lon = parseFloat(pt[1]);
+                    return (!isNaN(lat) && !isNaN(lon)) ? [lat, lon] : null;
+                } else if (pt && typeof pt === 'object') {
+                    const lat = parseFloat(pt.lat !== undefined ? pt.lat : pt.latitude);
+                    const lon = parseFloat(pt.lon !== undefined ? pt.lon : (pt.lng !== undefined ? pt.lng : pt.longitude));
+                    return (!isNaN(lat) && !isNaN(lon)) ? [lat, lon] : null;
+                }
+                return null;
+            }).filter(pt => pt !== null);
+        }
+
+        // Helper to extract coordinates from ANY property name or format
+        function extractCoordsFromVal(val) {
+            if (!val) return [];
+            if (typeof val === 'string') {
+                if (val.includes('<gpx') || val.includes('<trkpt') || val.includes('<?xml')) {
+                    return parseGpxXml(val);
+                }
+            }
+            if (Array.isArray(val)) {
+                return normalizeCoords(val);
+            }
+            return [];
+        }
+
+        function extractMapsFromDocData(data, tripId, gpxDataMap) {
+            let maps = [];
+
+            // Case A: Document already contains a `maps` array
+            if (data.maps && Array.isArray(data.maps) && data.maps.length > 0) {
+                maps = data.maps.map(m => ({
+                    url: m.url || m.link || "",
+                    coordinates: extractCoordsFromVal(m.coordinates || m.coords || m.points || m.gpx || m.gpxData),
+                    visible: m.visible !== undefined ? m.visible : true
+                }));
+            }
+
+            // Case B: Direct GPX / Coordinates on document root
+            if (maps.length === 0 || maps.every(m => m.coordinates.length === 0)) {
+                const directCoords = extractCoordsFromVal(
+                    data.coordinates || data.coords || data.points || data.latlngs || 
+                    data.track || data.path || data.gpx || data.gpxData || data.gpxXml || 
+                    data.gpxContent || data.fileData
+                );
+                if (directCoords.length > 0) {
+                    maps = [{
+                        url: data.mapUrl || data.url || data.link || "",
+                        coordinates: directCoords,
+                        visible: true
+                    }];
+                }
+            }
+
+            // Case C: Fallback to gpxDataMap collection (`vyslapy_gpx`)
+            if ((maps.length === 0 || maps.every(m => m.coordinates.length === 0)) && gpxDataMap && gpxDataMap[tripId]) {
+                const gpxDoc = gpxDataMap[tripId];
+                if (gpxDoc.maps && Array.isArray(gpxDoc.maps)) {
+                    maps = gpxDoc.maps.map(m => ({
+                        url: m.url || "",
+                        coordinates: extractCoordsFromVal(m.coordinates || m.coords || m.gpx),
+                        visible: true
+                    }));
+                } else {
+                    const gpxCoords = extractCoordsFromVal(gpxDoc.coordinates || gpxDoc.gpx || gpxDoc.gpxData || gpxDoc.fileData);
+                    if (gpxCoords.length > 0) {
+                        maps = [{ url: gpxDoc.url || "", coordinates: gpxCoords, visible: true }];
+                    }
+                }
+            }
+
+            // Case D: Fallback to extracting Mapy.cz URLs from note / description
+            if (maps.length === 0 || maps.every(m => m.coordinates.length === 0)) {
+                const noteText = (data.note || "") + " " + (data.description || "") + " " + (data.comment || "");
+                const urlRegex = /https?:\/\/(?:www\.|en\.)?mapy\.(?:cz|com)[^\s"'<>\\]+/gi;
+                const urlMatches = noteText.match(urlRegex);
+                if (urlMatches) {
+                    const cleanUrls = Array.from(new Set(urlMatches.map(u => u.replace(/[.,;)]$/, ''))));
+                    const existingUrls = maps.map(m => m.url);
+                    cleanUrls.forEach(url => {
+                        if (!existingUrls.includes(url)) {
+                            maps.push({ url: url, coordinates: [], visible: true });
+                        }
+                    });
+                }
+            }
+
+            return maps;
+        }
+
         window.onload = function() {
             window.initMap();
             window.loadFromStorage();
@@ -300,25 +424,8 @@
                     const tripName = data.name || "Neznámý vrchol";
                     const participants = data.participants || "";
 
-                    // Priorita 1: GPX souřadnice uložené přímo v dokumentu výšlapu z Horského Zápisníku
-                    // Priorita 2: Souřadnice z kolekce 'vyslapy_gpx'
-                    // Priorita 3: Extrakce odkazů z poznámky
-                    let updatedMaps = [];
-
-                    if (data.maps && Array.isArray(data.maps) && data.maps.length > 0) {
-                        updatedMaps = data.maps;
-                    } else if (data.coordinates && Array.isArray(data.coordinates) && data.coordinates.length > 0) {
-                        updatedMaps = [{ url: data.mapUrl || "", coordinates: data.coordinates, visible: true }];
-                    } else if (gpxDataMap[tripId] && gpxDataMap[tripId].maps) {
-                        updatedMaps = gpxDataMap[tripId].maps;
-                    } else if (data.note) {
-                        const urlRegex = /https?:\/\/(?:www\.|en\.)?mapy\.(?:cz|com)[^\s"'<>\\]+/gi;
-                        const urlMatches = data.note.match(urlRegex);
-                        if (urlMatches) {
-                            const cleanUrls = Array.from(new Set(urlMatches.map(u => u.replace(/[.,;)]$/, ''))));
-                            updatedMaps = cleanUrls.map(url => ({ url: url, coordinates: [], visible: true }));
-                        }
-                    }
+                    // Dynamicky extrahujeme GPX v jakémkoliv formátu
+                    const updatedMaps = extractMapsFromDocData(data, tripId, gpxDataMap);
 
                     const existingIndex = window.archivedTrips.findIndex(t => t.id === tripId);
 
@@ -371,10 +478,9 @@
             const reader = new FileReader();
             reader.onload = async function(e) {
                 try {
-                    const xmlDoc = new DOMParser().parseFromString(e.target.result, "text/xml");
-                    const trackPoints = xmlDoc.getElementsByTagName("trkpt");
-                    const coords = Array.from(trackPoints).map(pt => [parseFloat(pt.getAttribute("lat")), parseFloat(pt.getAttribute("lon"))]);
+                    const coords = parseGpxXml(e.target.result);
                     if (coords.length > 0) {
+                        const xmlDoc = new DOMParser().parseFromString(e.target.result, "text/xml");
                         const nameEl = xmlDoc.getElementsByTagName("name")[0];
                         const nowIso = new Date().toISOString();
                         const newId = 'gpx_' + Date.now();
