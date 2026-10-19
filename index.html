@@ -75,21 +75,17 @@
                     </div>
 
                     <div class="sm:col-span-12">
-                        <label class="block text-sm font-semibold text-stone-700 mb-1.5">Přiložit GPX soubor (volitelné)</label>
-                        <div class="flex items-center gap-3">
-                            <input type="file" id="hike-gpx" accept=".gpx" class="hidden" onchange="window.handleGpxUpload(event)">
-                            <label for="hike-gpx" class="cursor-pointer px-4 py-2.5 bg-stone-100 border border-stone-300 rounded-xl text-stone-700 font-medium text-sm hover:bg-stone-200 transition-colors flex items-center gap-2">
-                                <svg class="w-4 h-4 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
-                                Vybrat GPX
-                            </label>
-                            <span id="gpx-file-name" class="text-sm text-stone-500 italic truncate max-w-[150px] sm:max-w-xs">Žádný soubor</span>
-                            <button type="button" id="remove-gpx-btn" class="hidden text-red-500 hover:text-red-700 p-1 bg-red-50 rounded-lg border border-red-100 transition-colors" onclick="window.removeGpx()" title="Odstranit GPX">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                            </button>
+                        <label class="block text-sm font-semibold text-stone-700 mb-1.5">Části trasy (Odkazy na mapu a GPX soubory)</label>
+                        <div id="routes-container" class="space-y-3">
+                            <!-- Zde se vykreslují jednotlivé části trasy dynamicky z JS -->
                         </div>
+                        <button type="button" onclick="window.addRoutePart()" class="mt-3 flex items-center gap-1.5 text-sm font-bold text-emerald-600 hover:text-emerald-800 transition-colors bg-emerald-50 hover:bg-emerald-100 px-3 py-2 rounded-lg border border-emerald-100">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                            Přidat další úsek trasy
+                        </button>
                     </div>
 
-                    <div class="sm:col-span-12">
+                    <div class="sm:col-span-12 mt-2">
                         <label for="hike-note" class="block text-sm font-semibold text-stone-700 mb-1.5">Poznámka (volitelné)</label>
                         <textarea id="hike-note" rows="2" placeholder="Jaké bylo počasí? Co tě zaujalo?"
                             class="w-full px-4 py-2.5 bg-stone-50 border border-stone-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all"></textarea>
@@ -219,7 +215,9 @@
         let hikes = [];
         let editingId = null;
         let isInitialLoad = true;
-        let currentGpxData = null; // Proměnná pro uchování nahraného GPX
+        
+        // Pole pro ukládání dynamických částí trasy
+        let currentRoutes = [{ link: '', gpxData: null, gpxName: '' }];
 
         const form = document.getElementById('hike-form');
         const hikeNameInput = document.getElementById('hike-name');
@@ -262,6 +260,7 @@
                 console.warn("Anonymní přihlášení selhalo...", error);
                 listenToHikes();
             }
+            window.renderRouteInputs(); // Vykreslení prvního prázdného řádku pro trasu
         }
 
         function listenToHikes() {
@@ -284,34 +283,78 @@
 
         initApp();
 
-        // --- GPX Zpracování ---
-        window.handleGpxUpload = function(event) {
+        // --- DYNAMICKÉ TRASY A GPX ---
+        window.renderRouteInputs = function() {
+            const container = document.getElementById('routes-container');
+            container.innerHTML = '';
+            
+            currentRoutes.forEach((route, index) => {
+                const row = document.createElement('div');
+                row.className = "flex flex-col sm:flex-row items-start sm:items-center gap-3 bg-stone-50 p-3 rounded-xl border border-stone-200 relative group";
+                row.innerHTML = `
+                    <div class="flex-1 w-full">
+                        <input type="url" placeholder="Odkaz na mapu (např. Mapy.cz...)" value="${route.link || ''}"
+                            class="w-full px-3 py-2 bg-white border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none transition-all text-sm"
+                            onchange="window.updateRouteLink(${index}, this.value)">
+                    </div>
+                    <div class="flex items-center justify-between sm:justify-start gap-3 w-full sm:w-auto">
+                        <div class="flex items-center gap-2 bg-white px-2 py-1.5 border border-stone-200 rounded-lg">
+                            <input type="file" accept=".gpx" class="hidden" id="gpx-upload-${index}" onchange="window.handleGpxChange(${index}, event)">
+                            <label for="gpx-upload-${index}" class="cursor-pointer flex items-center gap-1.5 text-xs font-bold text-stone-700 hover:text-emerald-700 transition-colors shrink-0">
+                                <svg class="w-4 h-4 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                                GPX
+                            </label>
+                            <div class="h-4 w-px bg-stone-200 mx-1"></div>
+                            <span class="text-xs text-stone-500 w-24 sm:w-32 truncate" title="${route.gpxName || 'Nevybráno'}">${route.gpxName || 'Nevybráno'}</span>
+                        </div>
+                        <button type="button" onclick="window.removeRoutePart(${index})" 
+                            class="text-red-400 hover:text-red-600 p-1.5 hover:bg-red-50 rounded-md transition-colors ${currentRoutes.length === 1 && !route.link && !route.gpxData ? 'invisible' : ''}" 
+                            title="Odebrat úsek">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                    </div>
+                `;
+                container.appendChild(row);
+            });
+        };
+
+        window.addRoutePart = function() {
+            currentRoutes.push({ link: '', gpxData: null, gpxName: '' });
+            window.renderRouteInputs();
+        };
+
+        window.removeRoutePart = function(index) {
+            currentRoutes.splice(index, 1);
+            if (currentRoutes.length === 0) {
+                currentRoutes.push({ link: '', gpxData: null, gpxName: '' }); // Vždy alespoň jeden řádek
+            }
+            window.renderRouteInputs();
+        };
+
+        window.updateRouteLink = function(index, val) {
+            currentRoutes[index].link = val.trim();
+        };
+
+        window.handleGpxChange = function(index, event) {
             const file = event.target.files[0];
             if (!file) return;
             
-            // Pojistka na velikost (Firebase max doc size je 1MB)
+            // Kontrola velikosti (limit cca 800 KB pro jeden soubor)
             if (file.size > 800 * 1024) {
-                window.showModal('Příliš velký soubor', 'GPX soubor je moc velký (maximum je cca 800 KB). Zkus trasu zjednodušit.');
+                window.showModal('Příliš velký soubor', 'GPX soubor je moc velký. Zkus trasu zjednodušit nebo rozdělit na menší úseky.');
                 event.target.value = '';
                 return;
             }
 
             const reader = new FileReader();
             reader.onload = function(e) {
-                currentGpxData = e.target.result;
-                document.getElementById('gpx-file-name').textContent = file.name;
-                document.getElementById('remove-gpx-btn').classList.remove('hidden');
+                currentRoutes[index].gpxData = e.target.result;
+                currentRoutes[index].gpxName = file.name;
+                window.renderRouteInputs();
             };
             reader.readAsText(file);
         };
-
-        window.removeGpx = function() {
-            currentGpxData = null;
-            document.getElementById('hike-gpx').value = '';
-            document.getElementById('gpx-file-name').textContent = 'Žádný soubor';
-            document.getElementById('remove-gpx-btn').classList.add('hidden');
-        };
-        // ----------------------
+        // -----------------------------
 
         function updateFilters() {
             const currentYearVal = filterYearEl.value;
@@ -429,12 +472,42 @@
                     </div>
                 ` : '';
 
-                let gpxBadgeHtml = hike.gpx ? `
-                    <a href="data:application/gpx+xml;charset=utf-8,${encodeURIComponent(hike.gpx)}" download="${hike.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.gpx" class="flex items-center gap-1 text-xs font-bold text-sky-700 bg-sky-50 hover:bg-sky-100 px-2 py-1 rounded-md border border-sky-200 transition-colors" title="Stáhnout připojený GPX soubor">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                        GPX
-                    </a>
-                ` : '';
+                // Vykreslení částí trasy a GPX
+                let routesHtml = '';
+                const hikeRoutes = hike.routes || [];
+                
+                // Zpětná kompatibilita pro staré uložení, kdy bylo jen jedno gpx
+                if (hike.gpx && hikeRoutes.length === 0) {
+                    hikeRoutes.push({ link: '', gpxData: hike.gpx, gpxName: 'Původní trasa' });
+                }
+
+                if (hikeRoutes.length > 0) {
+                    routesHtml = '<div class="mt-4 flex flex-col gap-2">';
+                    hikeRoutes.forEach((route, idx) => {
+                        let partHtml = `<div class="flex flex-wrap items-center gap-2">`;
+                        if (hikeRoutes.length > 1) {
+                            partHtml += `<span class="text-xs font-bold text-stone-400 uppercase tracking-wider w-14">Úsek ${idx + 1}:</span>`;
+                        } else {
+                            partHtml += `<span class="text-xs font-bold text-stone-400 uppercase tracking-wider w-14">Trasa:</span>`;
+                        }
+
+                        if (route.link) {
+                            partHtml += `<a href="${route.link}" target="_blank" class="flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-md border border-emerald-200 transition-colors" title="Otevřít mapu">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                                Mapa
+                            </a>`;
+                        }
+                        if (route.gpxData) {
+                            partHtml += `<a href="data:application/gpx+xml;charset=utf-8,${encodeURIComponent(route.gpxData)}" download="${(hike.name + (hikeRoutes.length > 1 ? '_usek_' + (idx+1) : '')).replace(/[^a-z0-9]/gi, '_').toLowerCase()}.gpx" class="flex items-center gap-1.5 text-xs font-bold text-sky-700 bg-sky-50 hover:bg-sky-100 px-2.5 py-1.5 rounded-md border border-sky-200 transition-colors" title="${route.gpxName || 'Stáhnout GPX'}">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                                GPX <span class="hidden sm:inline opacity-70 font-normal">(${route.gpxName || 'soubor'})</span>
+                            </a>`;
+                        }
+                        partHtml += `</div>`;
+                        routesHtml += partHtml;
+                    });
+                    routesHtml += '</div>';
+                }
 
                 card.innerHTML = `
                     <div class="flex-1 w-full">
@@ -454,8 +527,8 @@
                                 <svg class="w-4 h-4 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                                 ${displayDate}
                             </span>
-                            ${gpxBadgeHtml}
                         </div>
+                        ${routesHtml}
                         ${participantsHtml}
                         ${noteHtml}
                     </div>
@@ -475,6 +548,9 @@
             e.preventDefault();
             if (submitBtn.disabled) return;
 
+            // Vyčistíme pole, aby se neukládaly úplně prázdné řádky
+            const cleanRoutes = currentRoutes.filter(r => r.link || r.gpxData);
+
             const newHikeData = {
                 name: hikeNameInput.value.trim(),
                 distance: parseFloat(hikeDistanceInput.value),
@@ -482,8 +558,14 @@
                 dateTo: hikeDateToInput.value,
                 participants: hikeParticipantsInput.value.trim(),
                 note: hikeNoteInput.value.trim(),
-                gpx: currentGpxData // Ulozeni GPX retezce
+                routes: cleanRoutes // Nahrazení starého 'gpx' za pole tras
             };
+
+            // Firebase má limit na velikost dokumentu (1 MB). Pro jistotu kontrolujeme
+            if (JSON.stringify(newHikeData).length > 900000) {
+                window.showModal('Příliš mnoho dat', 'Celková velikost připojených GPX souborů přesahuje maximální limit databáze pro jeden výšlap. Zkus smazat některý z dlouhých úseků.');
+                return;
+            }
 
             submitBtn.disabled = true;
             submitBtn.innerHTML = '<svg class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg> Ukládám...';
@@ -495,7 +577,11 @@
                 } else {
                     await addDoc(collection(db, 'vyslapy'), newHikeData);
                     form.reset();
-                    window.removeGpx();
+                    
+                    // Resetování tras na jeden prázdný řádek
+                    currentRoutes = [{ link: '', gpxData: null, gpxName: '' }];
+                    window.renderRouteInputs();
+                    
                     hikeDateInput.valueAsDate = new Date();
                 }
             } catch (error) {
@@ -520,14 +606,16 @@
             hikeParticipantsInput.value = hike.participants || '';
             hikeNoteInput.value = hike.note || '';
             
-            // Osetreni GPX pri editaci
-            if (hike.gpx) {
-                currentGpxData = hike.gpx;
-                document.getElementById('gpx-file-name').textContent = 'Soubor je nahrán v databázi';
-                document.getElementById('remove-gpx-btn').classList.remove('hidden');
+            // Ošetření GPX a odkazů při editaci
+            if (hike.routes && hike.routes.length > 0) {
+                currentRoutes = JSON.parse(JSON.stringify(hike.routes));
+            } else if (hike.gpx) {
+                // Zpětná kompatibilita pro úplně staré uložení před touto funkcí
+                currentRoutes = [{ link: '', gpxData: hike.gpx, gpxName: 'Původní GPX trasa' }];
             } else {
-                window.removeGpx();
+                currentRoutes = [{ link: '', gpxData: null, gpxName: '' }];
             }
+            window.renderRouteInputs();
 
             editingId = id;
             document.getElementById('form-title').textContent = "Úprava výšlapu";
@@ -540,7 +628,11 @@
 
         window.cancelEdit = function() {
             form.reset();
-            window.removeGpx();
+            
+            // Resetování tras na jeden prázdný řádek
+            currentRoutes = [{ link: '', gpxData: null, gpxName: '' }];
+            window.renderRouteInputs();
+
             hikeDateInput.valueAsDate = new Date();
             editingId = null;
             document.getElementById('form-title').textContent = "Přidat nový výšlap";
@@ -628,15 +720,20 @@
                 return;
             }
 
-            const excelData = hikes.map(hike => ({
-                "Název": hike.name,
-                "Vzdálenost (km)": parseFloat(hike.distance),
-                "Datum od": formatDate(hike.date),
-                "Datum do": hike.dateTo ? formatDate(hike.dateTo) : '',
-                "Účastníci": hike.participants || '',
-                "Poznámka": hike.note || ''
-                // GPX schvalne do excelu nedavame, je to jen kod
-            }));
+            const excelData = hikes.map(hike => {
+                const mapLinks = (hike.routes || []).map((r, i) => r.link ? `Úsek ${i+1}: ${r.link}` : '').filter(l => l).join(' | ');
+
+                return {
+                    "Název": hike.name,
+                    "Vzdálenost (km)": parseFloat(hike.distance),
+                    "Datum od": formatDate(hike.date),
+                    "Datum do": hike.dateTo ? formatDate(hike.dateTo) : '',
+                    "Účastníci": hike.participants || '',
+                    "Odkazy na mapy": mapLinks || '',
+                    "Poznámka": hike.note || ''
+                    // GPX obsah se neexportuje do Excelu
+                };
+            });
 
             try {
                 const ws = XLSX.utils.json_to_sheet(excelData);
