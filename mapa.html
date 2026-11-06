@@ -126,6 +126,11 @@
                     </div>
                 </div>
 
+                <!-- Vlastní logo -->
+                <div class="pt-4 pb-2 flex justify-center items-center">
+                    <img src="logo.png" alt="Logo" class="max-h-24 w-auto object-contain drop-shadow-sm opacity-95 hover:opacity-100 transition-opacity">
+                </div>
+
             </div>
         </aside>
 
@@ -150,7 +155,7 @@
 
             <div id="map" class="w-full h-full"></div>
             
-            <!-- TLAČÍTKA NA PC (na mobilu se schovají a zobrazí se uvnitř panelu dole) -->
+            <!-- TLAČÍTKA NA PC -->
             <div id="trip-media-links" class="hidden md:flex absolute md:top-6 left-1/2 transform -translate-x-1/2 z-[9999] flex-row flex-wrap justify-center items-center gap-2 pointer-events-auto bg-white/95 backdrop-blur-md p-2 md:p-3 rounded-2xl shadow-2xl border border-slate-200 w-[95vw] md:w-max"></div>
 
             <div class="absolute top-16 md:top-4 right-4 z-[400] bg-white/95 backdrop-blur-md p-3 rounded-2xl shadow-lg border border-slate-200/80 text-xs space-y-2 pointer-events-none">
@@ -167,7 +172,7 @@
                 </div>
             </div>
 
-            <!-- Elevation Profile Panel (Na mobilu obsahuje i tlačítka akcí, aby nic nepřečnívalo) -->
+            <!-- Elevation Profile Panel -->
             <div id="elevation-panel" class="hidden absolute bottom-20 md:bottom-6 left-4 right-4 md:left-6 md:right-6 z-[400] bg-white/95 backdrop-blur-md rounded-2xl p-4 shadow-2xl border border-slate-200/90 text-xs transition-all duration-300">
                 <div class="flex items-center justify-between mb-2">
                     <div class="flex items-center space-x-3 overflow-hidden">
@@ -1069,28 +1074,41 @@
                 </a>`;
             }
 
-            if (pcContainer) pcContainer.innerHTML = html;
-            if (mobileContainer) mobileContainer.innerHTML = html;
-
-            if (html) {
-                if (pcContainer) pcContainer.classList.remove('hidden');
-            } else {
-                if (pcContainer) pcContainer.classList.add('hidden');
+            if (pcContainer) {
+                pcContainer.innerHTML = html;
+                if (html) {
+                    pcContainer.classList.remove('hidden');
+                } else {
+                    pcContainer.classList.add('hidden');
+                }
+            }
+            if (mobileContainer) {
+                mobileContainer.innerHTML = html;
             }
         };
 
         window.resetSelection = function() {
-            window.selectedTripId = null; window.selectedMapIndex = null;
+            window.selectedTripId = null; 
+            window.selectedMapIndex = null;
             document.getElementById('btn-reset-selection').classList.add('hidden');
+            
+            // OPRAVA: Skrytí tlačítek jak pro PC, tak pro mobil
             const mediaContainer = document.getElementById('trip-media-links');
             const mobileContainer = document.getElementById('trip-media-links-mobile');
-            if (mediaContainer) mediaContainer.classList.add('hidden');
-            if (mobileContainer) mobileContainer.innerHTML = '';
+            if (mediaContainer) {
+                mediaContainer.classList.add('hidden');
+                mediaContainer.innerHTML = '';
+            }
+            if (mobileContainer) {
+                mobileContainer.innerHTML = '';
+            }
             
             const tripSelect = document.getElementById('ana-filter-trip');
             if (tripSelect) tripSelect.value = 'all';
 
-            window.hideElevationProfile(); window.renderMap(); window.renderSidebar();
+            window.hideElevationProfile(); 
+            window.renderMap(); 
+            window.renderSidebar();
             window.renderAnalyticsData();
         };
 
