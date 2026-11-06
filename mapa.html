@@ -150,8 +150,8 @@
 
             <div id="map" class="w-full h-full"></div>
             
-            <!-- OPRAVENÝ ŘÁDEK PRO TLAČÍTKA NAHŮŘE NA PC -->
-            <div id="trip-media-links" class="hidden absolute bottom-24 md:bottom-auto md:top-6 left-1/2 transform -translate-x-1/2 z-[9999] flex flex-row flex-wrap justify-center items-center gap-2 pointer-events-auto bg-white/95 backdrop-blur-md p-2 md:p-3 rounded-2xl shadow-2xl border border-slate-200 w-[95vw] md:w-max"></div>
+            <!-- TLAČÍTKA NA PC (na mobilu se schovají a zobrazí se uvnitř panelu dole) -->
+            <div id="trip-media-links" class="hidden md:flex absolute md:top-6 left-1/2 transform -translate-x-1/2 z-[9999] flex-row flex-wrap justify-center items-center gap-2 pointer-events-auto bg-white/95 backdrop-blur-md p-2 md:p-3 rounded-2xl shadow-2xl border border-slate-200 w-[95vw] md:w-max"></div>
 
             <div class="absolute top-16 md:top-4 right-4 z-[400] bg-white/95 backdrop-blur-md p-3 rounded-2xl shadow-lg border border-slate-200/80 text-xs space-y-2 pointer-events-none">
                 <div class="font-semibold text-slate-700 mb-1">Legenda mapy</div>
@@ -167,8 +167,8 @@
                 </div>
             </div>
 
-            <!-- Elevation Profile Panel -->
-            <div id="elevation-panel" class="hidden absolute bottom-24 md:bottom-6 left-4 right-4 md:left-6 md:right-6 z-[400] bg-white/95 backdrop-blur-md rounded-2xl p-4 shadow-2xl border border-slate-200/90 text-xs transition-all duration-300">
+            <!-- Elevation Profile Panel (Na mobilu obsahuje i tlačítka akcí, aby nic nepřečnívalo) -->
+            <div id="elevation-panel" class="hidden absolute bottom-20 md:bottom-6 left-4 right-4 md:left-6 md:right-6 z-[400] bg-white/95 backdrop-blur-md rounded-2xl p-4 shadow-2xl border border-slate-200/90 text-xs transition-all duration-300">
                 <div class="flex items-center justify-between mb-2">
                     <div class="flex items-center space-x-3 overflow-hidden">
                         <span class="p-1.5 bg-emerald-100 text-emerald-700 rounded-lg shrink-0">
@@ -183,6 +183,8 @@
                         <i class="fa-solid fa-xmark text-sm"></i>
                     </button>
                 </div>
+                <!-- Mobilní verze tlačítek přímo v panelu -->
+                <div id="trip-media-links-mobile" class="md:hidden flex flex-row flex-wrap justify-center items-center gap-2 mb-3 pt-2 border-t border-slate-100"></div>
                 <div class="h-24 sm:h-36 w-full relative">
                     <canvas id="elevationChart"></canvas>
                 </div>
@@ -1034,12 +1036,12 @@
         };
 
         window.renderTripMediaButtons = function(trip) {
-            const container = document.getElementById('trip-media-links');
-            if (!container) return;
+            const pcContainer = document.getElementById('trip-media-links');
+            const mobileContainer = document.getElementById('trip-media-links-mobile');
             
             let html = '';
-            html += `<button onclick="window.showTripAnalytics('${trip.id}')" class="bg-white hover:bg-indigo-50 text-slate-800 font-bold px-4 py-2.5 rounded-xl shadow-xl border-2 border-indigo-500/60 text-sm flex items-center space-x-2 transition-transform hover:scale-105">
-                <i class="fa-solid fa-chart-pie text-indigo-600 text-lg"></i><span>Statistiky</span>
+            html += `<button onclick="window.showTripAnalytics('${trip.id}')" class="bg-white hover:bg-indigo-50 text-slate-800 font-bold px-3 py-2 rounded-xl shadow-md border border-indigo-500/60 text-xs flex items-center space-x-1.5 transition-transform hover:scale-105">
+                <i class="fa-solid fa-chart-pie text-indigo-600 text-sm"></i><span>Statistiky</span>
             </button>`;
 
             let mapUrl = "";
@@ -1050,33 +1052,40 @@
             }
             if (mapUrl) {
                 const mUrl = mapUrl.startsWith('http') ? mapUrl : 'https://' + mapUrl;
-                html += `<a href="${mUrl}" target="_blank" class="bg-white hover:bg-emerald-50 text-slate-800 font-bold px-4 py-2.5 rounded-xl shadow-xl border-2 border-emerald-500/60 text-sm flex items-center space-x-2 transition-transform hover:scale-105">
-                    <i class="fa-solid fa-location-dot text-emerald-600 text-lg"></i><span>Mapa</span>
+                html += `<a href="${mUrl}" target="_blank" class="bg-white hover:bg-emerald-50 text-slate-800 font-bold px-3 py-2 rounded-xl shadow-md border border-emerald-500/60 text-xs flex items-center space-x-1.5 transition-transform hover:scale-105">
+                    <i class="fa-solid fa-location-dot text-emerald-600 text-sm"></i><span>Mapa</span>
                 </a>`;
             }
             if (trip.photos) {
                 const pUrl = trip.photos.startsWith('http') ? trip.photos : 'https://' + trip.photos;
-                html += `<a href="${pUrl}" target="_blank" class="bg-white hover:bg-amber-50 text-slate-800 font-bold px-4 py-2.5 rounded-xl shadow-xl border-2 border-amber-500/60 text-sm flex items-center space-x-2 transition-transform hover:scale-105">
-                    <i class="fa-solid fa-camera text-amber-600 text-lg"></i><span>Fotogalerie</span>
+                html += `<a href="${pUrl}" target="_blank" class="bg-white hover:bg-amber-50 text-slate-800 font-bold px-3 py-2 rounded-xl shadow-md border border-amber-500/60 text-xs flex items-center space-x-1.5 transition-transform hover:scale-105">
+                    <i class="fa-solid fa-camera text-amber-600 text-sm"></i><span>Fotky</span>
                 </a>`;
             }
             if (trip.video) {
                 const vUrl = trip.video.startsWith('http') ? trip.video : 'https://' + trip.video;
-                html += `<a href="${vUrl}" target="_blank" class="bg-white hover:bg-rose-50 text-slate-800 font-bold px-4 py-2.5 rounded-xl shadow-xl border-2 border-rose-500/60 text-sm flex items-center space-x-2 transition-transform hover:scale-105">
-                    <i class="fa-brands fa-youtube text-rose-600 text-lg"></i><span>Video</span>
+                html += `<a href="${vUrl}" target="_blank" class="bg-white hover:bg-rose-50 text-slate-800 font-bold px-3 py-2 rounded-xl shadow-md border border-rose-500/60 text-xs flex items-center space-x-1.5 transition-transform hover:scale-105">
+                    <i class="fa-brands fa-youtube text-rose-600 text-sm"></i><span>Video</span>
                 </a>`;
             }
 
-            container.innerHTML = html;
-            if (html) container.classList.remove('hidden');
-            else container.classList.add('hidden');
+            if (pcContainer) pcContainer.innerHTML = html;
+            if (mobileContainer) mobileContainer.innerHTML = html;
+
+            if (html) {
+                if (pcContainer) pcContainer.classList.remove('hidden');
+            } else {
+                if (pcContainer) pcContainer.classList.add('hidden');
+            }
         };
 
         window.resetSelection = function() {
             window.selectedTripId = null; window.selectedMapIndex = null;
             document.getElementById('btn-reset-selection').classList.add('hidden');
             const mediaContainer = document.getElementById('trip-media-links');
+            const mobileContainer = document.getElementById('trip-media-links-mobile');
             if (mediaContainer) mediaContainer.classList.add('hidden');
+            if (mobileContainer) mobileContainer.innerHTML = '';
             
             const tripSelect = document.getElementById('ana-filter-trip');
             if (tripSelect) tripSelect.value = 'all';
